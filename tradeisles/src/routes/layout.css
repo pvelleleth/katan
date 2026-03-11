@@ -1,0 +1,30 @@
+@import 'tailwindcss';
+
+@theme {
+	--color-parchment: #f4ebdc;
+	--color-parchment-light: #f9f2e7;
+	--color-parchment-dark: #efe3ce;
+	--color-wood: #6c3e20;
+	--color-wood-light: #8a5a2b;
+	--color-wood-dark: #2f1b10;
+	--color-brick: #d35b2f;
+	--color-ocean: #1e4d6b;
+	--color-forest: #3f7f3e;
+	
+	--font-trebuchet: "Trebuchet MS", "Avenir Next", Arial, sans-serif;
+}
+
+@utility bg-parchment-texture {
+	background-color: var(--color-parchment);
+	background-image: 
+		radial-gradient(at 10% 10%, var(--color-parchment-light) 0, transparent 50%),
+		url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+	background-blend-mode: soft-light;
+	opacity: 0.98;
+}
+
+@utility glass-panel {
+	background: rgba(238, 224, 200, 0.4);
+	backdrop-filter: blur(8px);
+	border: 1px solid rgba(210, 186, 151, 0.5);
+}
