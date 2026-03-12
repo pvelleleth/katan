@@ -1,29 +1,49 @@
 <script lang="ts">
     import { page } from "$app/stores";
     import { goto } from "$app/navigation";
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { authClient } from "$lib/auth-client";
+    import type { PageData } from './$types';
     
-    let lobbyId = $page.params.id;
+    export let data: PageData;
+    
+    let lobbyId = data.lobbyId;
     let user: Record<string, any> | null = null;
     let loading = true;
     let copied = false;
     
     type ColorNames = 'brick' | 'ocean' | 'wheat' | 'forest';
     
-    // Mock player data for the lobby
-    let players: { id: string, name: string, isHost: boolean, isReady: boolean, color: ColorNames }[] = [
-        { id: '1', name: 'Loading...', isHost: true, isReady: true, color: 'brick' }
-    ];
+    let players: { id: string, name: string, isHost: boolean, isReady: boolean, color: ColorNames }[] = [];
+    
+    let ws: WebSocket | null = null;
+
+    import { invalidateAll } from '$app/navigation';
 
     onMount(async () => {
         try {
-            const { data } = await authClient.getSession();
-            if (data?.user) {
-                user = data.user;
-                players[0].name = data.user.name || (data.user.isAnonymous ? 'Guest Player' : 'Player');
+            const { data: sessionData } = await authClient.getSession();
+            
+            if (sessionData?.user) {
+                user = sessionData.user;
+                // If they have a token on the client but the server missed it (or we just logged them in)
+                if (data.joinSuccess === false) {
+                     await invalidateAll();
+                } else {
+                     connectWebSocket(data.playerId || user!.id, user!.name || (user!.isAnonymous ? 'Guest Player' : 'Player'));
+                }
             } else {
-                goto('/login');
+                // Try anonymous sign in if no valid session exists
+                const res = await authClient.signIn.anonymous();
+                if (res.data?.user || (res.error?.code === 'ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY')) {
+                     const secondTry = await authClient.getSession();
+                     if (secondTry.data?.user) {
+                          user = secondTry.data.user;
+                          await invalidateAll();
+                     }
+                } else {
+                    goto('/login');
+                }
             }
         } catch (e) {
             console.error("Auth error", e);
@@ -33,6 +53,53 @@
         }
     });
 
+    // Reactive statement: if the loader successfully assigned a playerId and we have a user but NO websocket, connect!
+    $: if (data.playerId && user && !ws) {
+        connectWebSocket(data.playerId, user.name || (user.isAnonymous ? 'Guest Player' : 'Player'));
+    }
+
+    onDestroy(() => {
+        if (ws) {
+            ws.close();
+        }
+    });
+
+    function connectWebSocket(playerId: string, name: string) {
+        // Connect to Crystal WebSocket Server
+        ws = new WebSocket(`ws://localhost:8080/ws/lobby/${lobbyId}`);
+        
+        ws.onopen = () => {
+            console.log("Connected to game engine!");
+            ws?.send(JSON.stringify({
+                action: 'join',
+                payload: { player_id: playerId, name: name }
+            }));
+        };
+        
+        ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            
+            if (msg.type === 'lobby_update') {
+                const updatedPlayers = msg.lobby.players;
+                
+                // Keep the color assignment stable by looking at the DB or doing it deterministically
+                const fallbackColors: ColorNames[] = ['brick', 'ocean', 'wheat', 'forest'];
+                
+                players = updatedPlayers.map((p: any, index: number) => ({
+                    id: p.id,
+                    name: p.name,
+                    isReady: p.ready,
+                    isHost: p.id === data.hostId,
+                    color: fallbackColors[index % fallbackColors.length]
+                }));
+            }
+        };
+        
+        ws.onclose = () => {
+            console.log("Disconnected from game engine.");
+        };
+    }
+
     function copyInviteLink() {
         const link = `${window.location.origin}/game/${lobbyId}`;
         navigator.clipboard.writeText(link);
@@ -41,8 +108,15 @@
     }
 
     function toggleReady() {
-        players[0].isReady = !players[0].isReady;
-        players = [...players];
+        if (!ws || !data.playerId) return;
+        
+        const myPlayer = players.find(p => p.id === data.playerId);
+        if (myPlayer) {
+            ws.send(JSON.stringify({
+                action: 'ready',
+                payload: { player_id: data.playerId, ready: !myPlayer.isReady }
+            }));
+        }
     }
 
     function startGame() {
@@ -126,6 +200,9 @@
                             <div class="flex-1 min-w-0">
                                 <div class="font-bold text-wood-dark text-lg truncate flex items-center gap-2">
                                     {player.name}
+                                    {#if player.id === data.playerId}
+                                        <span class="text-[0.65rem] font-black text-white bg-ocean/80 px-2 py-0.5 rounded-full uppercase tracking-wider translate-y-[-1px]">You</span>
+                                    {/if}
                                     {#if player.isHost}
                                         <svg class="w-4 h-4 text-brick" fill="currentColor" viewBox="0 0 24 24"><title>Host</title><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                                     {/if}
@@ -151,14 +228,34 @@
 
             <!-- Action Area -->
             <div class="flex justify-end pt-4">
-                <button 
-                    on:click={startGame}
-                    class="bg-forest hover:bg-forest/90 text-white rounded-2xl px-8 py-3.5 font-bold text-xl hover:scale-105 transition-all shadow-xl shadow-forest/20 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed group/start flex items-center gap-2 w-full sm:w-auto justify-center"
-                    disabled={players.some(p => !p.isReady)}
-                >
-                    Start Game
-                    <svg class="w-6 h-6 group-hover/start:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-                </button>
+                {#if data.playerId && players.find(p => p.id === data.playerId)}
+                    {@const me = players.find(p => p.id === data.playerId)}
+                    {#if me && !me.isReady}
+                        <button 
+                            on:click={toggleReady}
+                            class="bg-ocean hover:bg-[#1880a8] text-white rounded-2xl px-8 py-3.5 font-bold text-xl hover:scale-105 transition-all shadow-xl shadow-ocean/20 active:scale-95 group/start flex items-center gap-2 w-full sm:w-auto justify-center border border-[#146c8e]"
+                        >
+                            Ready Up
+                            <svg class="w-6 h-6 group-hover/start:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                        </button>
+                    {:else if data.playerId === data.hostId}
+                        <button 
+                            on:click={startGame}
+                            class="bg-forest hover:bg-forest/90 text-white rounded-2xl px-8 py-3.5 font-bold text-xl hover:scale-105 transition-all shadow-xl shadow-forest/20 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed group/start flex items-center gap-2 w-full sm:w-auto justify-center"
+                            disabled={players.some(p => !p.isReady)}
+                        >
+                            Start Game
+                            <svg class="w-6 h-6 group-hover/start:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                        </button>
+                    {:else}
+                         <button 
+                            on:click={toggleReady}
+                            class="bg-wood/20 text-wood-dark hover:bg-wood/30 border border-wood/20 rounded-2xl px-8 py-3.5 font-bold text-xl hover:scale-105 transition-all active:scale-95 flex items-center gap-2 w-full sm:w-auto justify-center"
+                        >
+                            Unready
+                        </button>
+                    {/if}
+                {/if}
             </div>
 
         </div>

@@ -17,6 +17,9 @@
                 const res = await authClient.signIn.anonymous();
                 if (res.data?.user) {
                     user = res.data.user;
+                } else if (res.error?.code === 'ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY') {
+                    const secondTry = await authClient.getSession();
+                    if (secondTry.data?.user) user = secondTry.data.user;
                 }
             }
         } catch (e) {

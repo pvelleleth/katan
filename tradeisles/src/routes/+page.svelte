@@ -7,10 +7,18 @@
     async function handlePlayNow() {
         isSigningIn = true;
         try {
+            const { data: session } = await authClient.getSession();
+            if (session?.user) {
+                goto('/game');
+                return;
+            }
+
             const { data, error } = await authClient.signIn.anonymous();
-            if (data) {
+            if (data || (error && error.code === 'ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY')) {
                 goto('/game');
             }
+        } catch (e) {
+            console.error(e);
         } finally {
             isSigningIn = false;
         }

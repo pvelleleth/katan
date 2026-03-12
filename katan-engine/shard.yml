@@ -1,0 +1,13 @@
+name: katan-engine
+version: 0.1.0
+
+authors:
+  - pvelleleth <pvelleleth@gmail.com>
+
+targets:
+  katan-engine:
+    main: src/katan-engine.cr
+
+crystal: '>= 1.18.2'
+
+license: MIT
