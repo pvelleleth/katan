@@ -22,7 +22,15 @@ export const auth = betterAuth({
     },
   },
   plugins: [
-    anonymous(),
+    anonymous({
+      generateName: () => {
+        const adjs = ['Wandering', 'Lucky', 'Clever', 'Wealthy', 'Brave', 'Sneaky', 'Swift', 'Mighty'];
+        const nouns = ['Trader', 'Builder', 'Settler', 'Knight', 'Merchant', 'Explorer', 'Captain', 'Pioneer'];
+        const adj = adjs[Math.floor(Math.random() * adjs.length)];
+        const noun = nouns[Math.floor(Math.random() * nouns.length)];
+        return `${adj} ${noun}`;
+      }
+    }),
     sveltekitCookies(getRequestEvent),
   ],
 });

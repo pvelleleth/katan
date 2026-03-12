@@ -26,15 +26,23 @@
         }
     });
     
-    function handleCreateLobby() {
-        // Placeholder for creating lobby
-        alert("Creating a new lobby...");
+    async function handleCreateLobby() {
+        try {
+            const res = await fetch('/api/games', { method: 'POST' });
+            if (res.ok) {
+                const { game } = await res.json();
+                goto(`/game/${game.shortCode}`);
+            } else {
+                console.error("Failed to create lobby");
+            }
+        } catch (e) {
+            console.error(e);
+        }
     }
     
     function handleJoinLobby() {
         if (joinCode.length < 4) return;
-        // Placeholder for joining lobby
-        alert("Joining lobby: " + joinCode.toUpperCase());
+        goto(`/game/${joinCode.toUpperCase()}`);
     }
 
     async function handleSignOut() {
@@ -47,110 +55,92 @@
     <title>Game Lobby | TradeIsles</title>
 </svelte:head>
 
-<main class="min-h-screen flex flex-col bg-parchment-texture overflow-hidden selection:bg-ocean/30 font-trebuchet relative">
-    <!-- Navbar -->
-    <header class="h-[88px] px-8 lg:px-14 flex items-center justify-between sticky top-0 bg-parchment/60 backdrop-blur-xl z-50 border-b border-wood/10">
-        <a href="/" class="font-[900] text-2xl lg:text-3xl tracking-tight text-wood select-none hover:text-wood-dark transition-colors">
+<main class="min-h-screen flex flex-col bg-parchment-texture overflow-hidden selection:bg-ocean/30 font-trebuchet relative p-4 lg:p-6 gap-6">
+    <!-- Navbar Card -->
+    <header class="h-16 px-6 glass-panel rounded-2xl flex items-center justify-between border border-wood/10 shadow-sm w-full max-w-6xl mx-auto z-50">
+        <a href="/" class="font-[900] text-xl tracking-tight text-wood hover:text-wood-dark transition-colors">
             TRADEISLES
         </a>
         
-        <div class="flex items-center gap-6">
+        <div class="flex items-center gap-4">
             {#if loading}
                 <div class="w-24 h-4 bg-wood/10 rounded-full animate-pulse"></div>
             {:else if user}
-                <div class="flex items-center gap-4">
-                    <span class="text-wood-dark font-bold">
-                        {user.name || (user.isAnonymous ? 'Guest Player' : 'Player')}
-                    </span>
-                    <button 
-                        on:click={handleSignOut}
-                        class="text-sm font-bold text-brick hover:text-white border border-brick/20 hover:bg-brick px-4 py-1.5 rounded-full transition-all"
-                    >
-                        Sign Out
-                    </button>
-                </div>
+                <span class="text-sm text-wood-dark font-bold">
+                    {user.name || (user.isAnonymous ? 'Guest Player' : 'Player')}
+                </span>
+                <button 
+                    on:click={handleSignOut}
+                    class="text-xs font-bold text-brick hover:text-white border border-brick/40 hover:bg-brick px-4 py-1.5 rounded-xl transition-all shadow-sm active:scale-95"
+                >
+                    Sign Out
+                </button>
             {/if}
         </div>
     </header>
 
-    <div class="flex-1 flex flex-col items-center justify-center p-6 lg:p-12 relative min-h-0">
-        <!-- Decorative Glow -->
-        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl h-[600px] bg-ocean/10 rounded-full blur-[100px] pointer-events-none"></div>
+    <div class="flex-1 flex flex-col items-center justify-center relative min-h-0 z-10 w-full pb-10">
+        <!-- Main Action Card -->
+        <div class="w-full max-w-md glass-panel rounded-[2rem] p-6 sm:p-8 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] border-2 border-white/60 relative overflow-hidden flex flex-col gap-8 animate-in fade-in zoom-in-95 duration-500">
+            <!-- Decorative Glow Backgrounds -->
+            <div class="absolute top-0 right-0 w-64 h-64 bg-ocean/10 rounded-full blur-[60px] pointer-events-none -translate-y-1/2 translate-x-1/2"></div>
+            <div class="absolute bottom-0 left-0 w-64 h-64 bg-forest/10 rounded-full blur-[60px] pointer-events-none translate-y-1/2 -translate-x-1/2"></div>
 
-        {#if !loading}
-            <div class="mb-10 text-center relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                <h1 class="text-4xl lg:text-5xl font-black text-wood-dark mb-2 drop-shadow-sm">
-                    Welcome to the Isles
-                </h1>
-                <p class="text-lg text-wood-light/90 font-medium max-w-lg mx-auto">
-                    Create a new lobby to play with friends or join an existing game using a code.
-                </p>
+            <div class="text-center relative z-10 mt-2">
+                <h1 class="text-3xl font-black text-wood-dark drop-shadow-sm tracking-tight">Play Online</h1>
             </div>
-        {/if}
 
-        <div class="w-full max-w-4xl grid md:grid-cols-2 gap-8 items-stretch z-10 animate-in fade-in zoom-in-95 duration-500 delay-150 fill-mode-both">
-            
-            <!-- Create Game Panel -->
-            <div class="glass-panel p-10 rounded-3xl shadow-xl flex flex-col items-center text-center gap-6 transform transition-all hover:scale-[1.02] hover:-translate-y-1 hover:shadow-2xl hover:bg-white/30 group relative overflow-hidden">
-                <!-- Decorative Icon bg -->
-                <div class="absolute -right-10 -top-10 text-forest/5 rotate-12 group-hover:rotate-45 transition-transform duration-700 pointer-events-none">
-                    <svg class="w-64 h-64" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zm0 7l-10 5 10 5 10-5-10-5z"/></svg>
-                </div>
-
-                <div class="w-20 h-20 bg-forest/10 text-forest rounded-full flex items-center justify-center mb-2 group-hover:scale-110 group-hover:bg-forest group-hover:text-white transition-all duration-300 shadow-sm relative z-10">
-                    <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
-                </div>
-                
-                <div class="relative z-10 flex-1 flex flex-col">
-                    <h2 class="text-3xl font-black text-wood-dark mb-3">Host a Game</h2>
-                    <p class="text-wood-light/90 font-medium flex-1">Start a fresh match. You'll get a code to invite your friends into your lobby.</p>
-                </div>
-                
+            <div class="flex flex-col gap-4 relative z-10 mb-2">
+                <!-- Host Game Button -->
                 <button 
                     on:click={handleCreateLobby}
-                    class="relative z-10 w-full bg-forest hover:bg-forest/90 text-white rounded-2xl px-8 py-4.5 font-bold text-xl hover:scale-105 transition-all shadow-xl shadow-forest/20 active:scale-95 mt-2 flex items-center justify-center gap-2 group/btn"
+                    class="w-full bg-gradient-to-br from-forest to-[#1a5b3d] text-white rounded-[1.25rem] p-4 font-bold text-lg hover:-translate-y-0.5 hover:shadow-lg hover:shadow-forest/30 transition-all active:scale-[0.98] flex items-center justify-between group border border-[#164a31]"
                 >
-                    Create Lobby
-                    <svg class="w-6 h-6 group-hover/btn:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                    <div class="flex items-center gap-4">
+                        <div class="bg-white/20 p-2.5 rounded-xl shadow-inner">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+                        </div>
+                        <span class="tracking-wide">Host a Game</span>
+                    </div>
+                    <svg class="w-6 h-6 group-hover:translate-x-1 transition-transform opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
                 </button>
-            </div>
 
-            <!-- Join Game Panel -->
-            <div class="glass-panel p-10 rounded-3xl shadow-xl flex flex-col items-center text-center gap-6 transform transition-all hover:scale-[1.02] hover:-translate-y-1 hover:shadow-2xl hover:bg-white/30 group relative overflow-hidden">
-                <!-- Decorative Icon bg -->
-                <div class="absolute -left-10 -bottom-10 text-ocean/5 -rotate-12 group-hover:-rotate-45 transition-transform duration-700 pointer-events-none">
-                    <svg class="w-64 h-64" fill="currentColor" viewBox="0 0 24 24"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                <!-- Divider -->
+                <div class="flex items-center gap-4 py-2 opacity-40">
+                    <div class="flex-1 h-0.5 bg-wood rounded-full"></div>
+                    <span class="text-xs font-black text-wood tracking-widest uppercase">Or</span>
+                    <div class="flex-1 h-0.5 bg-wood rounded-full"></div>
                 </div>
 
-                <div class="w-20 h-20 bg-ocean/10 text-ocean rounded-full flex items-center justify-center mb-2 group-hover:scale-110 group-hover:bg-ocean group-hover:text-white transition-all duration-300 shadow-sm relative z-10">
-                    <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4v-4l5.257-5.257A6 6 0 1121 9z"/></svg>
-                </div>
-                
-                <div class="relative z-10 flex-1 flex flex-col w-full">
-                    <h2 class="text-3xl font-black text-wood-dark mb-3">Join a Game</h2>
-                    <p class="text-wood-light/90 font-medium mb-4">Have an invite code? Enter it below to drop right into the lobby.</p>
+                <!-- Join Game Input -->
+                <div class="bg-white/70 rounded-[1.25rem] p-4 border border-wood/15 shadow-sm flex flex-col gap-3 transition-all focus-within:bg-white focus-within:border-ocean/40 focus-within:shadow-md">
+                    <div class="flex items-center gap-3 text-wood-dark font-bold px-1">
+                        <div class="bg-ocean/10 text-ocean p-2 rounded-xl">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4v-4l5.257-5.257A6 6 0 1121 9z"/></svg>
+                        </div>
+                        <span class="tracking-wide">Join with Code</span>
+                    </div>
                     
-                    <div class="mt-auto flex flex-col gap-4 w-full">
+                    <div class="flex gap-2">
                         <input 
                             type="text" 
                             bind:value={joinCode}
-                            placeholder="LOBBY CODE" 
-                            class="w-full bg-white/70 border-2 border-wood/10 rounded-2xl px-6 py-4 font-black text-center text-2xl text-ocean placeholder:text-wood/30 outline-none focus:border-ocean focus:ring-4 ring-ocean/20 transition-all uppercase tracking-widest"
+                            placeholder="6-DIGIT CODE" 
+                            class="flex-1 bg-white/50 border border-wood/20 rounded-xl px-4 py-3.5 font-black text-center text-xl text-ocean placeholder:text-wood/30 outline-none focus:bg-white focus:border-ocean focus:ring-4 ring-ocean/10 transition-all uppercase tracking-[0.15em]"
                             maxlength="6"
                             on:keydown={(e) => e.key === 'Enter' && joinCode.length >= 4 && handleJoinLobby()}
                         />
                         <button 
                             on:click={handleJoinLobby}
                             disabled={joinCode.length < 4}
-                            class="w-full bg-ocean hover:bg-ocean/90 text-white rounded-2xl px-8 py-4.5 font-bold text-xl hover:scale-105 transition-all shadow-xl shadow-ocean/20 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed group/btn2 flex items-center justify-center gap-2"
+                            aria-label="Join Lobby"
+                            class="bg-ocean hover:bg-[#1880a8] text-white rounded-xl px-5 font-bold hover:-translate-y-0.5 transition-all shadow-md hover:shadow-ocean/30 active:scale-[0.95] disabled:opacity-50 disabled:hover:translate-y-0 disabled:-scale-100 disabled:shadow-none disabled:cursor-not-allowed flex items-center justify-center shrink-0 border border-[#146c8e]"
                         >
-                            Join Lobby
-                            <svg class="w-6 h-6 group-hover/btn2:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
                         </button>
                     </div>
                 </div>
             </div>
-
         </div>
     </div>
 </main>
