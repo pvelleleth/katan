@@ -24,7 +24,7 @@ module Katan::Engine::Application
         if pid = client.player_id
           if lobby = @lobbies[lid]?
             lobby.remove_player(pid)
-            
+
             # Clean up empty lobbies
             if lobby.players.empty?
               @lobbies.delete(lid)
@@ -41,8 +41,8 @@ module Katan::Engine::Application
       if lobby = @lobbies[lobby_id]?
         if list = @clients[lobby_id]?
           state_json = {
-            type: "lobby_update",
-            lobby: lobby
+            type:  "lobby_update",
+            lobby: lobby,
           }.to_json
           list.each do |client|
             client.send_json(state_json)

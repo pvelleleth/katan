@@ -1,263 +1,360 @@
 <script lang="ts">
-    import { page } from "$app/stores";
-    import { goto } from "$app/navigation";
-    import { onMount, onDestroy } from "svelte";
-    import { authClient } from "$lib/auth-client";
-    import type { PageData } from './$types';
-    
-    export let data: PageData;
-    
-    let lobbyId = data.lobbyId;
-    let user: Record<string, any> | null = null;
-    let loading = true;
-    let copied = false;
-    
-    type ColorNames = 'brick' | 'ocean' | 'wheat' | 'forest';
-    
-    let players: { id: string, name: string, isHost: boolean, isReady: boolean, color: ColorNames }[] = [];
-    
-    let ws: WebSocket | null = null;
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import { onMount, onDestroy } from 'svelte';
+	import { authClient } from '$lib/auth-client';
+	import type { PageData } from './$types';
 
-    import { invalidateAll } from '$app/navigation';
+	export let data: PageData;
 
-    onMount(async () => {
-        try {
-            const { data: sessionData } = await authClient.getSession();
-            
-            if (sessionData?.user) {
-                user = sessionData.user;
-                // If they have a token on the client but the server missed it (or we just logged them in)
-                if (data.joinSuccess === false) {
-                     await invalidateAll();
-                } else {
-                     connectWebSocket(data.playerId || user!.id, user!.name || (user!.isAnonymous ? 'Guest Player' : 'Player'));
-                }
-            } else {
-                // Try anonymous sign in if no valid session exists
-                const res = await authClient.signIn.anonymous();
-                if (res.data?.user || (res.error?.code === 'ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY')) {
-                     const secondTry = await authClient.getSession();
-                     if (secondTry.data?.user) {
-                          user = secondTry.data.user;
-                          await invalidateAll();
-                     }
-                } else {
-                    goto('/login');
-                }
-            }
-        } catch (e) {
-            console.error("Auth error", e);
-            goto('/login');
-        } finally {
-            loading = false;
-        }
-    });
+	let lobbyId = data.lobbyId;
+	let user: Record<string, any> | null = null;
+	let loading = true;
+	let copied = false;
 
-    // Reactive statement: if the loader successfully assigned a playerId and we have a user but NO websocket, connect!
-    $: if (data.playerId && user && !ws) {
-        connectWebSocket(data.playerId, user.name || (user.isAnonymous ? 'Guest Player' : 'Player'));
-    }
+	type ColorNames = 'brick' | 'ocean' | 'wheat' | 'forest';
 
-    onDestroy(() => {
-        if (ws) {
-            ws.close();
-        }
-    });
+	let players: {
+		id: string;
+		name: string;
+		isHost: boolean;
+		isReady: boolean;
+		color: ColorNames;
+	}[] = [];
 
-    function connectWebSocket(playerId: string, name: string) {
-        // Connect to Crystal WebSocket Server
-        ws = new WebSocket(`ws://localhost:8080/ws/lobby/${lobbyId}`);
-        
-        ws.onopen = () => {
-            console.log("Connected to game engine!");
-            ws?.send(JSON.stringify({
-                action: 'join',
-                payload: { player_id: playerId, name: name }
-            }));
-        };
-        
-        ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-            
-            if (msg.type === 'lobby_update') {
-                const updatedPlayers = msg.lobby.players;
-                
-                // Keep the color assignment stable by looking at the DB or doing it deterministically
-                const fallbackColors: ColorNames[] = ['brick', 'ocean', 'wheat', 'forest'];
-                
-                players = updatedPlayers.map((p: any, index: number) => ({
-                    id: p.id,
-                    name: p.name,
-                    isReady: p.ready,
-                    isHost: p.id === data.hostId,
-                    color: fallbackColors[index % fallbackColors.length]
-                }));
-            }
-        };
-        
-        ws.onclose = () => {
-            console.log("Disconnected from game engine.");
-        };
-    }
+	let ws: WebSocket | null = null;
 
-    function copyInviteLink() {
-        const link = `${window.location.origin}/game/${lobbyId}`;
-        navigator.clipboard.writeText(link);
-        copied = true;
-        setTimeout(() => copied = false, 2000);
-    }
+	import { invalidateAll } from '$app/navigation';
 
-    function toggleReady() {
-        if (!ws || !data.playerId) return;
-        
-        const myPlayer = players.find(p => p.id === data.playerId);
-        if (myPlayer) {
-            ws.send(JSON.stringify({
-                action: 'ready',
-                payload: { player_id: data.playerId, ready: !myPlayer.isReady }
-            }));
-        }
-    }
+	onMount(async () => {
+		try {
+			const { data: sessionData } = await authClient.getSession();
 
-    function startGame() {
-        // Placeholder for game start
-        alert("Starting game!");
-    }
+			if (sessionData?.user) {
+				user = sessionData.user;
+				// If they have a token on the client but the server missed it (or we just logged them in)
+				if (data.joinSuccess === false) {
+					await invalidateAll();
+				} else {
+					connectWebSocket(
+						data.playerId || user!.id,
+						user!.name || (user!.isAnonymous ? 'Guest Player' : 'Player')
+					);
+				}
+			} else {
+				// Try anonymous sign in if no valid session exists
+				const res = await authClient.signIn.anonymous();
+				if (
+					res.data?.user ||
+					res.error?.code === 'ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY'
+				) {
+					const secondTry = await authClient.getSession();
+					if (secondTry.data?.user) {
+						user = secondTry.data.user;
+						await invalidateAll();
+					}
+				} else {
+					goto('/login');
+				}
+			}
+		} catch (e) {
+			console.error('Auth error', e);
+			goto('/login');
+		} finally {
+			loading = false;
+		}
+	});
 
-    // Helper colors
-    const colors: Record<ColorNames, string> = {
-        brick: 'bg-brick',
-        ocean: 'bg-ocean',
-        wheat: 'bg-wheat',
-        forest: 'bg-forest',
-    };
-    
+	// Reactive statement: if the loader successfully assigned a playerId and we have a user but NO websocket, connect!
+	$: if (data.playerId && user && !ws) {
+		connectWebSocket(data.playerId, user.name || (user.isAnonymous ? 'Guest Player' : 'Player'));
+	}
+
+	onDestroy(() => {
+		if (ws) {
+			ws.close();
+		}
+	});
+
+	function connectWebSocket(playerId: string, name: string) {
+		// Connect to Crystal WebSocket Server
+		ws = new WebSocket(`ws://localhost:8080/ws/lobby/${lobbyId}`);
+
+		ws.onopen = () => {
+			console.log('Connected to game engine!');
+			ws?.send(
+				JSON.stringify({
+					action: 'join',
+					payload: { player_id: playerId, name: name }
+				})
+			);
+		};
+
+		ws.onmessage = (event) => {
+			const msg = JSON.parse(event.data);
+
+			if (msg.type === 'lobby_update') {
+				const updatedPlayers = msg.lobby.players;
+
+				// Keep the color assignment stable by looking at the DB or doing it deterministically
+				const fallbackColors: ColorNames[] = ['brick', 'ocean', 'wheat', 'forest'];
+
+				players = updatedPlayers.map((p: any, index: number) => ({
+					id: p.id,
+					name: p.name,
+					isReady: p.ready,
+					isHost: p.id === data.hostId,
+					color: fallbackColors[index % fallbackColors.length]
+				}));
+			}
+		};
+
+		ws.onclose = () => {
+			console.log('Disconnected from game engine.');
+		};
+	}
+
+	function copyInviteLink() {
+		const link = `${window.location.origin}/game/${lobbyId}`;
+		navigator.clipboard.writeText(link);
+		copied = true;
+		setTimeout(() => (copied = false), 2000);
+	}
+
+	function toggleReady() {
+		if (!ws || !data.playerId) return;
+
+		const myPlayer = players.find((p) => p.id === data.playerId);
+		if (myPlayer) {
+			ws.send(
+				JSON.stringify({
+					action: 'ready',
+					payload: { player_id: data.playerId, ready: !myPlayer.isReady }
+				})
+			);
+		}
+	}
+
+	function startGame() {
+		// Placeholder for game start
+		alert('Starting game!');
+	}
+
+	// Helper colors
+	const colors: Record<ColorNames, string> = {
+		brick: 'bg-brick',
+		ocean: 'bg-ocean',
+		wheat: 'bg-wheat',
+		forest: 'bg-forest'
+	};
 </script>
 
 <svelte:head>
-    <title>Lobby {lobbyId} | TradeIsles</title>
+	<title>Lobby {lobbyId} | TradeIsles</title>
 </svelte:head>
 
-<main class="min-h-screen flex flex-col bg-parchment-texture overflow-hidden selection:bg-ocean/30 font-trebuchet relative">
-    <!-- Navbar -->
-    <header class="h-[88px] px-8 lg:px-14 flex items-center justify-between sticky top-0 bg-parchment/60 backdrop-blur-xl z-50 border-b border-wood/10">
-        <a href="/" class="font-[900] text-2xl lg:text-3xl tracking-tight text-wood select-none hover:text-wood-dark transition-colors">
-            TRADEISLES
-        </a>
-        
-        <div class="flex items-center gap-6">
-            <button 
-                on:click={() => goto('/game')}
-                class="text-sm font-bold text-wood hover:text-brick border border-wood/20 hover:border-brick/20 px-4 py-1.5 rounded-full transition-all"
-            >
-                Leave Lobby
-            </button>
-        </div>
-    </header>
+<main
+	class="relative flex min-h-screen flex-col overflow-hidden bg-parchment-texture font-trebuchet selection:bg-ocean/30"
+>
+	<!-- Navbar -->
+	<header
+		class="sticky top-0 z-50 flex h-[88px] items-center justify-between border-b border-wood/10 bg-parchment/60 px-8 backdrop-blur-xl lg:px-14"
+	>
+		<a
+			href="/"
+			class="text-2xl font-[900] tracking-tight text-wood transition-colors select-none hover:text-wood-dark lg:text-3xl"
+		>
+			TRADEISLES
+		</a>
 
-    <div class="flex-1 flex flex-col items-center justify-center p-6 lg:p-12 relative min-h-0">
-        <!-- Decorative Glow -->
-        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl h-[600px] bg-ocean/10 rounded-full blur-[100px] pointer-events-none"></div>
+		<div class="flex items-center gap-6">
+			<button
+				on:click={() => goto('/game')}
+				class="rounded-full border border-wood/20 px-4 py-1.5 text-sm font-bold text-wood transition-all hover:border-brick/20 hover:text-brick"
+			>
+				Leave Lobby
+			</button>
+		</div>
+	</header>
 
-        <div class="w-full max-w-3xl flex flex-col gap-8 relative z-10 animate-in fade-in zoom-in-95 duration-500">
-            
-            <!-- Lobby Code Header -->
-            <div class="glass-panel p-8 rounded-3xl shadow-xl flex flex-col sm:flex-row items-center justify-between gap-6 border-2 border-wood/10">
-                <div>
-                    <h1 class="text-xl font-bold text-wood-light/80 uppercase tracking-widest mb-1">Lobby Code</h1>
-                    <div class="text-4xl lg:text-5xl font-black text-wood-dark tracking-[0.2em] drop-shadow-sm font-mono">{lobbyId}</div>
-                </div>
-                
-                <button 
-                    on:click={copyInviteLink}
-                    class="bg-white/80 hover:bg-white text-ocean rounded-2xl px-6 py-4 font-bold text-lg hover:scale-105 transition-all shadow-md active:scale-95 flex items-center gap-3 border border-ocean/20"
-                >
-                    {#if copied}
-                        <svg class="w-6 h-6 text-forest" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
-                        <span class="text-forest">Copied!</span>
-                    {:else}
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                        <span>Copy Link</span>
-                    {/if}
-                </button>
-            </div>
+	<div class="relative flex min-h-0 flex-1 flex-col items-center justify-center p-6 lg:p-12">
+		<!-- Decorative Glow -->
+		<div
+			class="pointer-events-none absolute top-1/2 left-1/2 h-[600px] w-full max-w-4xl -translate-x-1/2 -translate-y-1/2 rounded-full bg-ocean/10 blur-[100px]"
+		></div>
 
-            <!-- Players List -->
-            <div class="glass-panel p-8 rounded-3xl shadow-xl border-2 border-wood/10">
-                <div class="flex items-center justify-between mb-6">
-                    <h2 class="text-2xl font-black text-wood-dark">Players (1/4)</h2>
-                    <span class="text-sm font-bold text-wood-light bg-wood/10 px-3 py-1 rounded-full text-center">Waiting for players...</span>
-                </div>
-                
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {#each players as player}
-                        <div class="bg-white/50 border border-wood/10 rounded-2xl p-4 flex items-center gap-4 relative overflow-hidden group">
-                            <!-- Player Color indicator -->
-                            <div class="w-12 h-12 rounded-full {colors[player.color]} shadow-md border-2 border-white/50 flex items-center justify-center text-white shrink-0">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-                            </div>
-                            
-                            <div class="flex-1 min-w-0">
-                                <div class="font-bold text-wood-dark text-lg truncate flex items-center gap-2">
-                                    {player.name}
-                                    {#if player.id === data.playerId}
-                                        <span class="text-[0.65rem] font-black text-white bg-ocean/80 px-2 py-0.5 rounded-full uppercase tracking-wider translate-y-[-1px]">You</span>
-                                    {/if}
-                                    {#if player.isHost}
-                                        <svg class="w-4 h-4 text-brick" fill="currentColor" viewBox="0 0 24 24"><title>Host</title><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                                    {/if}
-                                </div>
-                                <div class="text-sm font-semibold {player.isReady ? 'text-forest' : 'text-wood/50'}">
-                                    {player.isReady ? 'Ready' : 'Not Ready'}
-                                </div>
-                            </div>
-                        </div>
-                    {/each}
+		<div
+			class="animate-in fade-in zoom-in-95 relative z-10 flex w-full max-w-3xl flex-col gap-8 duration-500"
+		>
+			<!-- Lobby Code Header -->
+			<div
+				class="flex flex-col items-center justify-between gap-6 rounded-3xl border-2 border-wood/10 p-8 shadow-xl glass-panel sm:flex-row"
+			>
+				<div>
+					<h1 class="mb-1 text-xl font-bold tracking-widest text-wood-light/80 uppercase">
+						Lobby Code
+					</h1>
+					<div
+						class="font-mono text-4xl font-black tracking-[0.2em] text-wood-dark drop-shadow-sm lg:text-5xl"
+					>
+						{lobbyId}
+					</div>
+				</div>
 
-                    <!-- Empty Slots -->
-                    {#each Array(4 - players.length) as _}
-                        <div class="border-2 border-dashed border-wood/20 rounded-2xl p-4 flex items-center gap-4 h-[84px] bg-wood/5">
-                            <div class="w-12 h-12 rounded-full bg-wood/10 border-2 border-wood/10 flex items-center justify-center shrink-0">
-                                <span class="text-wood/30 font-bold text-xl">?</span>
-                            </div>
-                            <div class="text-wood/40 font-bold text-lg">Empty Slot</div>
-                        </div>
-                    {/each}
-                </div>
-            </div>
+				<button
+					on:click={copyInviteLink}
+					class="flex items-center gap-3 rounded-2xl border border-ocean/20 bg-white/80 px-6 py-4 text-lg font-bold text-ocean shadow-md transition-all hover:scale-105 hover:bg-white active:scale-95"
+				>
+					{#if copied}
+						<svg class="h-6 w-6 text-forest" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+							><path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2.5"
+								d="M5 13l4 4L19 7"
+							/></svg
+						>
+						<span class="text-forest">Copied!</span>
+					{:else}
+						<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+							><path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2.5"
+								d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+							/></svg
+						>
+						<span>Copy Link</span>
+					{/if}
+				</button>
+			</div>
 
-            <!-- Action Area -->
-            <div class="flex justify-end pt-4">
-                {#if data.playerId && players.find(p => p.id === data.playerId)}
-                    {@const me = players.find(p => p.id === data.playerId)}
-                    {#if me && !me.isReady}
-                        <button 
-                            on:click={toggleReady}
-                            class="bg-ocean hover:bg-[#1880a8] text-white rounded-2xl px-8 py-3.5 font-bold text-xl hover:scale-105 transition-all shadow-xl shadow-ocean/20 active:scale-95 group/start flex items-center gap-2 w-full sm:w-auto justify-center border border-[#146c8e]"
-                        >
-                            Ready Up
-                            <svg class="w-6 h-6 group-hover/start:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
-                        </button>
-                    {:else if data.playerId === data.hostId}
-                        <button 
-                            on:click={startGame}
-                            class="bg-forest hover:bg-forest/90 text-white rounded-2xl px-8 py-3.5 font-bold text-xl hover:scale-105 transition-all shadow-xl shadow-forest/20 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed group/start flex items-center gap-2 w-full sm:w-auto justify-center"
-                            disabled={players.some(p => !p.isReady)}
-                        >
-                            Start Game
-                            <svg class="w-6 h-6 group-hover/start:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-                        </button>
-                    {:else}
-                         <button 
-                            on:click={toggleReady}
-                            class="bg-wood/20 text-wood-dark hover:bg-wood/30 border border-wood/20 rounded-2xl px-8 py-3.5 font-bold text-xl hover:scale-105 transition-all active:scale-95 flex items-center gap-2 w-full sm:w-auto justify-center"
-                        >
-                            Unready
-                        </button>
-                    {/if}
-                {/if}
-            </div>
+			<!-- Players List -->
+			<div class="rounded-3xl border-2 border-wood/10 p-8 shadow-xl glass-panel">
+				<div class="mb-6 flex items-center justify-between">
+					<h2 class="text-2xl font-black text-wood-dark">Players (1/4)</h2>
+					<span
+						class="rounded-full bg-wood/10 px-3 py-1 text-center text-sm font-bold text-wood-light"
+						>Waiting for players...</span
+					>
+				</div>
 
-        </div>
-    </div>
+				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+					{#each players as player}
+						<div
+							class="group relative flex items-center gap-4 overflow-hidden rounded-2xl border border-wood/10 bg-white/50 p-4"
+						>
+							<!-- Player Color indicator -->
+							<div
+								class="h-12 w-12 rounded-full {colors[
+									player.color
+								]} flex shrink-0 items-center justify-center border-2 border-white/50 text-white shadow-md"
+							>
+								<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+									><path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2.5"
+										d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+									/></svg
+								>
+							</div>
+
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center gap-2 truncate text-lg font-bold text-wood-dark">
+									{player.name}
+									{#if player.id === data.playerId}
+										<span
+											class="translate-y-[-1px] rounded-full bg-ocean/80 px-2 py-0.5 text-[0.65rem] font-black tracking-wider text-white uppercase"
+											>You</span
+										>
+									{/if}
+									{#if player.isHost}
+										<svg class="h-4 w-4 text-brick" fill="currentColor" viewBox="0 0 24 24"
+											><title>Host</title><path
+												d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+											/></svg
+										>
+									{/if}
+								</div>
+								<div
+									class="text-sm font-semibold {player.isReady ? 'text-forest' : 'text-wood/50'}"
+								>
+									{player.isReady ? 'Ready' : 'Not Ready'}
+								</div>
+							</div>
+						</div>
+					{/each}
+
+					<!-- Empty Slots -->
+					{#each Array(4 - players.length) as _}
+						<div
+							class="flex h-[84px] items-center gap-4 rounded-2xl border-2 border-dashed border-wood/20 bg-wood/5 p-4"
+						>
+							<div
+								class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-wood/10 bg-wood/10"
+							>
+								<span class="text-xl font-bold text-wood/30">?</span>
+							</div>
+							<div class="text-lg font-bold text-wood/40">Empty Slot</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+
+			<!-- Action Area -->
+			<div class="flex justify-end pt-4">
+				{#if data.playerId && players.find((p) => p.id === data.playerId)}
+					{@const me = players.find((p) => p.id === data.playerId)}
+					{#if me && !me.isReady}
+						<button
+							on:click={toggleReady}
+							class="group/start flex w-full items-center justify-center gap-2 rounded-2xl border border-[#146c8e] bg-ocean px-8 py-3.5 text-xl font-bold text-white shadow-xl shadow-ocean/20 transition-all hover:scale-105 hover:bg-[#1880a8] active:scale-95 sm:w-auto"
+						>
+							Ready Up
+							<svg
+								class="h-6 w-6 transition-transform group-hover/start:translate-x-1"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+								><path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2.5"
+									d="M5 13l4 4L19 7"
+								/></svg
+							>
+						</button>
+					{:else if data.playerId === data.hostId}
+						<button
+							on:click={startGame}
+							class="group/start flex w-full items-center justify-center gap-2 rounded-2xl bg-forest px-8 py-3.5 text-xl font-bold text-white shadow-xl shadow-forest/20 transition-all hover:scale-105 hover:bg-forest/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 sm:w-auto"
+							disabled={players.some((p) => !p.isReady)}
+						>
+							Start Game
+							<svg
+								class="h-6 w-6 transition-transform group-hover/start:translate-x-1"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+								><path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2.5"
+									d="M14 5l7 7m0 0l-7 7m7-7H3"
+								/></svg
+							>
+						</button>
+					{:else}
+						<button
+							on:click={toggleReady}
+							class="flex w-full items-center justify-center gap-2 rounded-2xl border border-wood/20 bg-wood/20 px-8 py-3.5 text-xl font-bold text-wood-dark transition-all hover:scale-105 hover:bg-wood/30 active:scale-95 sm:w-auto"
+						>
+							Unready
+						</button>
+					{/if}
+				{/if}
+			</div>
+		</div>
+	</div>
 </main>

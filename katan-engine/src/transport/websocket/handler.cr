@@ -14,12 +14,12 @@ module Katan::Engine::Transport::WebSocket
 
     def call(context)
       request = context.request
-      
+
       if request.path.starts_with?("/ws/lobby/")
         # Extract the lobby ID from the path, e.g. /ws/lobby/123
         lobby_id = request.path.sub("/ws/lobby/", "")
-        
-        # Check if the path format was correct 
+
+        # Check if the path format was correct
         if lobby_id.empty?
           call_next(context)
           return
@@ -38,7 +38,7 @@ module Katan::Engine::Transport::WebSocket
             @lobby_manager.remove_client(client)
           end
         end
-        
+
         ws_handler.call(context)
       else
         call_next(context)
@@ -56,14 +56,14 @@ module Katan::Engine::Transport::WebSocket
           if payload = incoming.payload
             player_id = payload["player_id"]?.try(&.as_s?)
             name = payload["name"]?.try(&.as_s?)
-            
+
             if player_id && name
               client.player_id = player_id
-              
+
               lobby = @lobby_manager.get_or_create_lobby(lid)
               player = Domain::Player.new(player_id, name)
               lobby.add_player(player)
-              
+
               @lobby_manager.add_client(lid, client)
               @lobby_manager.broadcast_lobby_state(lid)
             end
@@ -77,10 +77,10 @@ module Katan::Engine::Transport::WebSocket
           if payload = incoming.payload
             player_id = payload["player_id"]?.try(&.as_s?)
             ready_state = payload["ready"]?.try(&.as_bool?)
-            
+
             if player_id && !ready_state.nil?
               lobby = @lobby_manager.get_or_create_lobby(lid)
-              
+
               # Find and update player
               if player = lobby.players.find { |p| p.id == player_id }
                 player.ready = ready_state
