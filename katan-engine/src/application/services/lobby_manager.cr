@@ -37,6 +37,17 @@ module Katan::Engine::Application
       end
     end
 
+    def kick_player(lobby_id : String, target_player_id : String)
+      if list = @clients[lobby_id]?
+        target_client = list.find { |c| c.player_id == target_player_id }
+        if target_client
+          target_client.send_json({type: "kicked", message: "You were removed from the lobby by the host."}.to_json)
+          remove_client(target_client)
+          target_client.socket.close
+        end
+      end
+    end
+
     def broadcast_lobby_state(lobby_id : String)
       if lobby = @lobbies[lobby_id]?
         if list = @clients[lobby_id]?

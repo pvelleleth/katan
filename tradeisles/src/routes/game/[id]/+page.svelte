@@ -85,7 +85,7 @@
 			ws?.send(
 				JSON.stringify({
 					action: 'join',
-					payload: { player_id: playerId, name: name }
+					payload: { player_id: playerId, name: name, host_id: data.hostId }
 				})
 			);
 		};
@@ -106,6 +106,10 @@
 					isHost: p.id === data.hostId,
 					color: fallbackColors[index % fallbackColors.length]
 				}));
+			} else if (msg.type === 'kicked') {
+				// This client was kicked by the host
+				ws?.close();
+				goto('/game?kicked=1');
 			}
 		};
 
@@ -138,6 +142,16 @@
 	function startGame() {
 		// Placeholder for game start
 		alert('Starting game!');
+	}
+
+	function kickPlayer(targetId: string) {
+		if (!ws || !data.playerId) return;
+		ws.send(
+			JSON.stringify({
+				action: 'kick',
+				payload: { target_player_id: targetId }
+			})
+		);
 	}
 
 	// Helper colors
@@ -283,6 +297,24 @@
 									{player.isReady ? 'Ready' : 'Not Ready'}
 								</div>
 							</div>
+
+							<!-- Kick button: only visible for the host, on other players' cards -->
+							{#if data.playerId === data.hostId && player.id !== data.playerId}
+								<button
+									on:click={() => kickPlayer(player.id)}
+									title="Kick player"
+									class="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-brick/20 bg-brick/10 text-brick opacity-0 transition-all hover:bg-brick hover:text-white group-hover:opacity-100"
+								>
+									<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											stroke-width="2.5"
+											d="M6 18L18 6M6 6l12 12"
+										/>
+									</svg>
+								</button>
+							{/if}
 						</div>
 					{/each}
 

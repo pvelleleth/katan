@@ -56,11 +56,16 @@ module Katan::Engine::Transport::WebSocket
           if payload = incoming.payload
             player_id = payload["player_id"]?.try(&.as_s?)
             name = payload["name"]?.try(&.as_s?)
+            host_id = payload["host_id"]?.try(&.as_s?)
 
             if player_id && name
               client.player_id = player_id
 
               lobby = @lobby_manager.get_or_create_lobby(lid)
+
+              # Always sync host from the DB-authoritative value sent by the client
+              lobby.host_id = host_id if host_id
+
               player = Domain::Player.new(player_id, name)
               lobby.add_player(player)
 
@@ -72,6 +77,20 @@ module Katan::Engine::Transport::WebSocket
           @lobby_manager.remove_client(client)
           # We might want to close the socket from our end but that will also trigger `on_close`
           client.socket.close
+        when "kick"
+          if payload = incoming.payload
+            target_player_id = payload["target_player_id"]?.try(&.as_s?)
+
+            if target_player_id
+              lobby = @lobby_manager.get_or_create_lobby(lid)
+              # Only the host is allowed to kick
+              if lobby.host_id == client.player_id
+                @lobby_manager.kick_player(lid, target_player_id)
+              else
+                puts "Kick rejected: #{client.player_id} is not the host of #{lid}"
+              end
+            end
+          end
         when "ready"
           # Example of an action to toggle readiness
           if payload = incoming.payload
