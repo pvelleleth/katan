@@ -19,6 +19,7 @@
 		name: string;
 		isHost: boolean;
 		isReady: boolean;
+		isConnected: boolean;
 		color: ColorNames;
 	}[] = [];
 
@@ -103,6 +104,7 @@
 					id: p.id,
 					name: p.name,
 					isReady: p.ready,
+					isConnected: p.connected ?? true,
 					isHost: p.id === data.hostId,
 					color: fallbackColors[index % fallbackColors.length]
 				}));
@@ -161,6 +163,14 @@
 		wheat: 'bg-wheat',
 		forest: 'bg-forest'
 	};
+
+	$: offlinePlayers = players.filter((player) => !player.isConnected);
+	$: readyConnectedPlayers = players.filter((player) => player.isConnected && player.isReady);
+	$: canStartGame = readyConnectedPlayers.length >= 3;
+	$: lobbyStatus =
+		offlinePlayers.length > 0
+			? `${offlinePlayers.length} player${offlinePlayers.length === 1 ? '' : 's'} disconnected`
+			: 'Waiting for players...';
 </script>
 
 <svelte:head>
@@ -249,14 +259,14 @@
 					<h2 class="text-2xl font-black text-wood-dark">Players (1/4)</h2>
 					<span
 						class="rounded-full bg-wood/10 px-3 py-1 text-center text-sm font-bold text-wood-light"
-						>Waiting for players...</span
+						>{lobbyStatus}</span
 					>
 				</div>
 
 				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 					{#each players as player}
 						<div
-							class="group relative flex items-center gap-4 overflow-hidden rounded-2xl border border-wood/10 bg-white/50 p-4"
+							class="group relative flex items-center gap-4 overflow-hidden rounded-2xl border border-wood/10 bg-white/50 p-4 {player.isConnected ? '' : 'opacity-70'}"
 						>
 							<!-- Player Color indicator -->
 							<div
@@ -291,10 +301,17 @@
 										>
 									{/if}
 								</div>
-								<div
-									class="text-sm font-semibold {player.isReady ? 'text-forest' : 'text-wood/50'}"
-								>
-									{player.isReady ? 'Ready' : 'Not Ready'}
+								<div class="flex items-center gap-2 text-sm font-semibold">
+									<span class={player.isReady ? 'text-forest' : 'text-wood/50'}>
+										{player.isReady ? 'Ready' : 'Not Ready'}
+									</span>
+									{#if !player.isConnected}
+										<span
+											class="rounded-full bg-brick/10 px-2 py-0.5 text-[0.65rem] font-black tracking-wider text-brick uppercase"
+										>
+											Offline
+										</span>
+									{/if}
 								</div>
 							</div>
 
@@ -361,7 +378,7 @@
 						<button
 							on:click={startGame}
 							class="group/start flex w-full items-center justify-center gap-2 rounded-2xl bg-forest px-8 py-3.5 text-xl font-bold text-white shadow-xl shadow-forest/20 transition-all hover:scale-105 hover:bg-forest/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 sm:w-auto"
-							disabled={players.some((p) => !p.isReady)}
+							disabled={!canStartGame}
 						>
 							Start Game
 							<svg

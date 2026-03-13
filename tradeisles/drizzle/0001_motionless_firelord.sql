@@ -1,0 +1,1 @@
+ALTER TABLE "game" ADD COLUMN "settings" jsonb DEFAULT '{"turnTimeSeconds":120,"maxPlayers":4,"victoryPoints":10,"useSeafarers":false,"useTraders":false,"useExplorers":false}'::jsonb NOT NULL;

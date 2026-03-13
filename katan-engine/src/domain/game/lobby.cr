@@ -21,6 +21,10 @@ module Katan::Engine::Domain
       end
     end
 
+    def find_player(player_id : String) : Player?
+      @players.find { |p| p.id == player_id }
+    end
+
     def remove_player(player_id : String)
       @players.reject! { |p| p.id == player_id }
     end

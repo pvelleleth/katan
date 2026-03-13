@@ -1,6 +1,24 @@
-import { pgTable, text, integer, timestamp, boolean, uuid, varchar, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, timestamp, boolean, uuid, varchar, primaryKey, jsonb } from 'drizzle-orm/pg-core';
 import { user } from '../../auth-schema';
 import { relations } from 'drizzle-orm';
+
+export type GameSettings = {
+	turnTimeSeconds: number;
+	maxPlayers: number;
+	victoryPoints: number;
+	useSeafarers: boolean;
+	useTraders: boolean;
+	useExplorers: boolean;
+};
+
+const defaultGameSettings: GameSettings = {
+	turnTimeSeconds: 120,
+	maxPlayers: 4,
+	victoryPoints: 10,
+	useSeafarers: false,
+	useTraders: false,
+	useExplorers: false
+};
 
 export const player = pgTable('player', {
 	id: uuid('id').defaultRandom().primaryKey(),
@@ -15,6 +33,7 @@ export const game = pgTable('game', {
 	id: uuid('id').defaultRandom().primaryKey(),
 	shortCode: varchar('short_code', { length: 6 }).notNull().unique(),
 	status: varchar('status', { length: 20 }).notNull().default('waiting'),
+	settings: jsonb('settings').$type<GameSettings>().notNull().default(defaultGameSettings),
 	hostPlayerId: uuid('host_player_id').notNull().references(() => player.id, { onDelete: 'cascade' }),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	startedAt: timestamp('started_at'),

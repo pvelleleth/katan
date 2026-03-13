@@ -35,7 +35,7 @@ module Katan::Engine::Transport::WebSocket
           end
 
           ws.on_close do
-            @lobby_manager.remove_client(client)
+            @lobby_manager.disconnect_client(client)
           end
         end
 
@@ -59,23 +59,11 @@ module Katan::Engine::Transport::WebSocket
             host_id = payload["host_id"]?.try(&.as_s?)
 
             if player_id && name
-              client.player_id = player_id
-
-              lobby = @lobby_manager.get_or_create_lobby(lid)
-
-              # Always sync host from the DB-authoritative value sent by the client
-              lobby.host_id = host_id if host_id
-
-              player = Domain::Player.new(player_id, name)
-              lobby.add_player(player)
-
-              @lobby_manager.add_client(lid, client)
-              @lobby_manager.broadcast_lobby_state(lid)
+              @lobby_manager.handle_join(lid, player_id, name, client, host_id)
             end
           end
         when "leave"
           @lobby_manager.remove_client(client)
-          # We might want to close the socket from our end but that will also trigger `on_close`
           client.socket.close
         when "kick"
           if payload = incoming.payload
@@ -101,7 +89,10 @@ module Katan::Engine::Transport::WebSocket
               lobby = @lobby_manager.get_or_create_lobby(lid)
 
               # Find and update player
-              if player = lobby.players.find { |p| p.id == player_id }
+              if player = lobby.find_player(player_id)
+                if !player.connected
+                  return
+                end
                 player.ready = ready_state
                 @lobby_manager.broadcast_lobby_state(lid)
               end
