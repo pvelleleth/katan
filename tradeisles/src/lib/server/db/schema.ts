@@ -1,6 +1,6 @@
-import { pgTable, text, integer, timestamp, boolean, uuid, varchar, primaryKey, jsonb } from 'drizzle-orm/pg-core';
-import { user } from '../../auth-schema';
 import { relations } from 'drizzle-orm';
+import { pgTable, text, integer, timestamp, boolean, uuid, varchar, primaryKey, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { user } from '../../auth-schema';
 
 export type GameSettings = {
 	turnTimeSeconds: number;
@@ -50,13 +50,33 @@ export const gameParticipant = pgTable('game_participant', {
 	primaryKey({ columns: [table.gameId, table.playerId] })
 ]);
 
+export type GameEventPayload = Record<string, unknown>;
+
+export const gameEvent = pgTable('game_event', {
+	id: uuid('id').defaultRandom().primaryKey(),
+	gameId: uuid('game_id').notNull().references(() => game.id, { onDelete: 'cascade' }),
+	sequence: integer('sequence').notNull(),
+	type: varchar('type', { length: 50 }).notNull(),
+	actorPlayerId: uuid('actor_player_id').references(() => player.id, { onDelete: 'set null' }),
+	turnNumber: integer('turn_number'),
+	phase: varchar('phase', { length: 30 }),
+	payload: jsonb('payload').$type<GameEventPayload>().notNull(),
+	message: text('message'),
+	createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => [
+	uniqueIndex('game_event_game_sequence_idx').on(table.gameId, table.sequence),
+	index('game_event_game_created_idx').on(table.gameId, table.createdAt),
+	index('game_event_game_type_idx').on(table.gameId, table.type)
+]);
+
 export const playerRelations = relations(player, ({ one, many }) => ({
 	user: one(user, {
 		fields: [player.userId],
 		references: [user.id]
 	}),
 	hostedGames: many(game),
-	gamesJoined: many(gameParticipant)
+	gamesJoined: many(gameParticipant),
+	emittedGameEvents: many(gameEvent)
 }));
 
 export const gameRelations = relations(game, ({ one, many }) => ({
@@ -64,7 +84,8 @@ export const gameRelations = relations(game, ({ one, many }) => ({
 		fields: [game.hostPlayerId],
 		references: [player.id]
 	}),
-	participants: many(gameParticipant)
+	participants: many(gameParticipant),
+	events: many(gameEvent)
 }));
 
 export const gameParticipantRelations = relations(gameParticipant, ({ one }) => ({
@@ -74,6 +95,17 @@ export const gameParticipantRelations = relations(gameParticipant, ({ one }) => 
 	}),
 	player: one(player, {
 		fields: [gameParticipant.playerId],
+		references: [player.id]
+	})
+}));
+
+export const gameEventRelations = relations(gameEvent, ({ one }) => ({
+	game: one(game, {
+		fields: [gameEvent.gameId],
+		references: [game.id]
+	}),
+	actor: one(player, {
+		fields: [gameEvent.actorPlayerId],
 		references: [player.id]
 	})
 }));

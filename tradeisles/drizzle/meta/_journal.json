@@ -15,6 +15,13 @@
       "when": 1773381679390,
       "tag": "0001_motionless_firelord",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773435000000,
+      "tag": "0002_game_event_log",
+      "breakpoints": true
     }
   ]
 }

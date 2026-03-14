@@ -80,22 +80,12 @@ module Katan::Engine::Transport::WebSocket
             end
           end
         when "ready"
-          # Example of an action to toggle readiness
           if payload = incoming.payload
             player_id = payload["player_id"]?.try(&.as_s?)
             ready_state = payload["ready"]?.try(&.as_bool?)
 
             if player_id && !ready_state.nil?
-              lobby = @lobby_manager.get_or_create_lobby(lid)
-
-              # Find and update player
-              if player = lobby.find_player(player_id)
-                if !player.connected
-                  return
-                end
-                player.ready = ready_state
-                @lobby_manager.broadcast_lobby_state(lid)
-              end
+              @lobby_manager.set_player_ready(lid, player_id, ready_state)
             end
           end
         else

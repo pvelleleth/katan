@@ -4,6 +4,8 @@ require "http/server"
 require "./domain/**"
 # Require application logic
 require "./application/**"
+# Require infrastructure
+require "./infrastructure/**"
 # Require transport layer
 require "./transport/websocket/**"
 
@@ -13,8 +15,17 @@ module Katan::Engine
   def self.run
     puts "Initializing Katan Engine (v#{VERSION})..."
 
+    database_url = ENV["DATABASE_URL"]?
+    game_event_store =
+      if database_url
+        Infrastructure::Persistence::PostgresGameEventStore.new(database_url)
+      else
+        puts "DATABASE_URL not set; game events will not be persisted."
+        Infrastructure::Persistence::NullGameEventStore.new
+      end
+
     # Setup application state
-    lobby_manager = Application::LobbyManager.new
+    lobby_manager = Application::LobbyManager.new(game_event_store)
 
     # Setup transport handlers
     ws_handler = Transport::WebSocket::Handler.new(lobby_manager)

@@ -1,5 +1,6 @@
 require "../../domain/game/lobby"
 require "../../transport/websocket/client"
+require "../../infrastructure/persistence/game_event_store"
 require "json"
 require "time"
 
@@ -9,6 +10,9 @@ module Katan::Engine::Application
 
     property lobbies = Hash(String, Domain::Lobby).new
     property clients = Hash(String, Array(Transport::WebSocket::Client)).new
+
+    def initialize(@game_event_store : Infrastructure::Persistence::GameEventStore = Infrastructure::Persistence::NullGameEventStore.new)
+    end
 
     def get_or_create_lobby(id : String) : Domain::Lobby
       @lobbies[id] ||= Domain::Lobby.new(id)
@@ -32,6 +36,13 @@ module Katan::Engine::Application
       client.player_id = player_id
       remove_existing_clients(lobby_id, player_id, client)
       add_client(lobby_id, client)
+      log_event(
+        lobby_id,
+        "player_joined",
+        player_id,
+        {name: name}.to_json,
+        "#{name} joined the lobby."
+      )
       broadcast_lobby_state(lobby_id)
     end
 
@@ -55,12 +66,12 @@ module Katan::Engine::Application
     end
 
     def remove_client(client : Transport::WebSocket::Client)
-      remove_player(client.lobby_id, client.player_id)
+      remove_player(client.lobby_id, client.player_id, "player_left", "left the lobby")
       client.player_id = nil
       client.lobby_id = nil
     end
 
-    def remove_player(lobby_id : String?, player_id : String?) : Bool
+    def remove_player(lobby_id : String?, player_id : String?, event_type : String? = nil, message_suffix : String? = nil) : Bool
       return false unless lobby_id && player_id
 
       if list = @clients[lobby_id]?
@@ -72,6 +83,15 @@ module Katan::Engine::Application
         if player = lobby.find_player(player_id)
           player.disconnect_version += 1
           lobby.remove_player(player_id)
+          if event_type
+            log_event(
+              lobby_id,
+              event_type,
+              player_id,
+              {name: player.name}.to_json,
+              "#{player.name} #{message_suffix}."
+            )
+          end
           removed = true
         end
 
@@ -87,11 +107,30 @@ module Katan::Engine::Application
 
       if target_client
         target_client.send_json({type: "kicked", message: "You were removed from the lobby by the host."}.to_json)
-        remove_client(target_client)
+        remove_player(lobby_id, target_player_id, "player_kicked", "was removed from the lobby")
+        target_client.player_id = nil
+        target_client.lobby_id = nil
         target_client.socket.close
       else
-        remove_player(lobby_id, target_player_id)
+        remove_player(lobby_id, target_player_id, "player_kicked", "was removed from the lobby")
       end
+    end
+
+    def set_player_ready(lobby_id : String, player_id : String, ready_state : Bool) : Bool
+      lobby = get_or_create_lobby(lobby_id)
+      return false unless player = lobby.find_player(player_id)
+      return false unless player.connected
+
+      player.ready = ready_state
+      log_event(
+        lobby_id,
+        "player_ready_changed",
+        player_id,
+        {name: player.name, ready: ready_state}.to_json,
+        "#{player.name} is #{ready_state ? "ready" : "not ready"}."
+      )
+      broadcast_lobby_state(lobby_id)
+      true
     end
 
     def broadcast_lobby_state(lobby_id : String)
@@ -133,6 +172,13 @@ module Katan::Engine::Application
       return unless !player.connected && player.disconnect_version == disconnect_version
 
       lobby.remove_player(player_id)
+      log_event(
+        lobby_id,
+        "player_disconnected",
+        player_id,
+        {name: player.name}.to_json,
+        "#{player.name} disconnected."
+      )
       cleanup_lobby(lobby_id, lobby)
       broadcast_lobby_state(lobby_id) if @lobbies[lobby_id]?
     end
@@ -142,6 +188,18 @@ module Katan::Engine::Application
 
       @lobbies.delete(lobby_id)
       @clients.delete(lobby_id)
+    end
+
+    private def log_event(lobby_id : String, event_type : String, actor_player_id : String?, payload_json : String, message : String)
+      @game_event_store.append(
+        lobby_code: lobby_id,
+        event_type: event_type,
+        actor_player_id: actor_player_id,
+        payload_json: payload_json,
+        message: message
+      )
+    rescue ex
+      puts "Failed to persist game event #{event_type} for #{lobby_id}: #{ex.message}"
     end
   end
 end
