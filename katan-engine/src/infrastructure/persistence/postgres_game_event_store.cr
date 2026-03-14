@@ -4,6 +4,14 @@ require "./game_event_store"
 
 module Katan::Engine::Infrastructure::Persistence
   class PostgresGameEventStore < GameEventStore
+    @db : DB::Database
+
+    UPDATE_SETTINGS_SQL = <<-SQL
+      UPDATE game
+      SET settings = $2::jsonb
+      WHERE short_code = $1
+    SQL
+
     INSERT_EVENT_SQL = <<-SQL
       WITH target_game AS (
         SELECT id
@@ -40,6 +48,11 @@ module Katan::Engine::Infrastructure::Persistence
 
     def initialize(database_url : String)
       @db = DB.open(database_url)
+    end
+
+    def update_game_settings(lobby_code : String, settings_json : String) : Nil
+      result = @db.exec(UPDATE_SETTINGS_SQL, lobby_code, settings_json)
+      raise "No game found for lobby #{lobby_code}" if result.rows_affected.zero?
     end
 
     def append(

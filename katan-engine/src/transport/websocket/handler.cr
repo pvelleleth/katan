@@ -79,6 +79,18 @@ module Katan::Engine::Transport::WebSocket
               end
             end
           end
+        when "settings_update"
+          if payload = incoming.payload
+            settings = payload["settings"]?.try(&.as_h?)
+            if settings
+              lobby = @lobby_manager.get_or_create_lobby(lid)
+              if lobby.host_id == client.player_id
+                @lobby_manager.update_settings(lid, settings)
+              else
+                puts "Settings update rejected: #{client.player_id} is not the host of #{lid}"
+              end
+            end
+          end
         when "ready"
           if payload = incoming.payload
             player_id = payload["player_id"]?.try(&.as_s?)

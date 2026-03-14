@@ -11,6 +11,9 @@ targets:
 crystal: '>= 1.18.2'
 
 dependencies:
+  dotenv:
+    github: drum445/dotenv
+    version: ~> 0.5.0
   pg:
     github: will/crystal-pg
     version: ~> 0.29.0

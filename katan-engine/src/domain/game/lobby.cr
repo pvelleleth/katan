@@ -8,6 +8,7 @@ module Katan::Engine::Domain
     getter id : String
     getter players : Array(Player) = [] of Player
     property host_id : String? = nil
+    property settings : Hash(String, JSON::Any) = Hash(String, JSON::Any).new
 
     def initialize(@id : String)
     end

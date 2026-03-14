@@ -1,4 +1,7 @@
 require "http/server"
+require "dotenv"
+
+Dotenv.load
 
 # Require domain logic
 require "./domain/**"

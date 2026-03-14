@@ -64,7 +64,8 @@ export const load: PageServerLoad = async (event) => {
 		return {
 			lobbyId,
 			playerId: activePlayer.id,
-            hostId: activeGame.hostPlayerId
+			hostId: activeGame.hostPlayerId,
+			settings: activeGame.settings
 		};
 
 	} catch (e) {

@@ -36,13 +36,7 @@ module Katan::Engine::Application
       client.player_id = player_id
       remove_existing_clients(lobby_id, player_id, client)
       add_client(lobby_id, client)
-      log_event(
-        lobby_id,
-        "player_joined",
-        player_id,
-        {name: name}.to_json,
-        "#{name} joined the lobby."
-      )
+      
       broadcast_lobby_state(lobby_id)
     end
 
@@ -131,6 +125,15 @@ module Katan::Engine::Application
       )
       broadcast_lobby_state(lobby_id)
       true
+    end
+
+    def update_settings(lobby_id : String, settings : Hash(String, JSON::Any))
+      lobby = get_or_create_lobby(lobby_id)
+      lobby.settings = settings
+      @game_event_store.update_game_settings(lobby_id, settings.to_json)
+      broadcast_lobby_state(lobby_id)
+    rescue ex
+      puts "Failed to persist game settings for #{lobby_id}: #{ex.message}"
     end
 
     def broadcast_lobby_state(lobby_id : String)
