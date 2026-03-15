@@ -412,7 +412,7 @@ class GameState
     end
 
     @player_order.each do |player_id|
-      points_by_player[player_id] += player!(player_id).revealed_victory_point_cards
+      # Do not include revealed_victory_point_cards in the public score
       player!(player_id).victory_points = points_by_player[player_id]
     end
   end
@@ -420,14 +420,14 @@ class GameState
   private def resolve_winner! : Nil
     return if @winner_player_id
 
-    if current_player!.victory_points >= 10
+    if current_player!.victory_points + current_player!.revealed_victory_point_cards >= 10
       @winner_player_id = @turn.current_player_id
       @turn.phase = TurnPhase::GameOver
       return
     end
 
     winner = @player_order.find do |player_id|
-      player!(player_id).victory_points >= 10
+      player!(player_id).victory_points + player!(player_id).revealed_victory_point_cards >= 10
     end
 
     return unless winner
