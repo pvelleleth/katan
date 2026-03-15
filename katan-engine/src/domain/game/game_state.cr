@@ -1,4 +1,5 @@
 require "./topology"
+require "./bank"
 require "../board/board_state"
 
 enum TurnPhase
@@ -80,6 +81,7 @@ end
 class GameState
   getter topology : BoardTopology
   getter board : BoardState
+  getter bank : Bank
   getter players : Hash(PlayerId, PlayerState)
   getter player_order : Array(PlayerId)
   getter turn : TurnState
@@ -92,6 +94,7 @@ class GameState
     @settings : Hash(String, JSON::Any)
   )
     @version = 0
+    @bank = Bank.new
     rng = Random.new
     @player_order = @players.keys.shuffle(random: rng)
     board_setup = BoardSetupGenerator.generate(@topology, rng)

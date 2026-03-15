@@ -172,6 +172,7 @@ module Katan::Engine::Application
             name: player.name,
           }
         },
+        bank: game_state.bank.to_json_payload,
         board: {
           tiles: game_state.topology.tiles.values.map { |t|
             {
