@@ -303,7 +303,9 @@ class GameState
 
   private def distribute_resources!(total : Int32) : Nil
     demand_by_resource = Hash(Resource, Int32).new(0)
-    grants = [] of Tuple(PlayerId, Resource, Int32)
+    grants_by_resource = Hash(Resource, Hash(PlayerId, Int32)).new do |hash, resource|
+      hash[resource] = Hash(PlayerId, Int32).new(0)
+    end
 
     @board.tile_states.each do |tile_id, tile_state|
       next unless tile_state.token == total
@@ -315,18 +317,24 @@ class GameState
         next unless building = @board.building_at?(vertex_id)
 
         amount = building.kind.city? ? 2 : 1
-        grants << {building.player_id, tile_state.resource, amount}
+        grants_by_resource[tile_state.resource][building.player_id] += amount
         demand_by_resource[tile_state.resource] += amount
       end
     end
 
     demand_by_resource.each do |resource, amount|
       next if amount.zero?
-      next if @bank.resources.count(resource) < amount
+      available = @bank.resources.count(resource)
+      next if available.zero?
 
-      grants.each do |player_id, grant_resource, grant_amount|
-        next unless grant_resource == resource
-        grant_resource!(player!(player_id), resource, grant_amount)
+      player_grants = grants_by_resource[resource]
+      if available >= amount
+        player_grants.each do |player_id, grant_amount|
+          grant_resource!(player!(player_id), resource, grant_amount)
+        end
+      elsif player_grants.size == 1
+        player_id, _ = player_grants.first
+        grant_resource!(player!(player_id), resource, available)
       end
     end
   end

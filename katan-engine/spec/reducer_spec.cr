@@ -26,6 +26,18 @@ private def resource_tally_for_vertex(game_state : GameState, vertex_id : Vertex
   tally
 end
 
+private def set_bank_resource!(game_state : GameState, resource : Resource, amount : Int32) : Nil
+  case resource
+  when .wood?  then game_state.bank.resources.wood = amount
+  when .brick? then game_state.bank.resources.brick = amount
+  when .sheep? then game_state.bank.resources.sheep = amount
+  when .wheat? then game_state.bank.resources.wheat = amount
+  when .ore?   then game_state.bank.resources.ore = amount
+  else
+    raise "cannot set desert bank supply"
+  end
+end
+
 private def place_roads_in_main!(game_state : GameState, player_id : PlayerId, edge_ids : Array(EdgeId)) : Nil
   player = game_state.player!(player_id)
   player.hand.wood += edge_ids.size
@@ -141,6 +153,48 @@ describe GameState do
     game_state.last_roll.not_nil!.die_one.should eq(die_one)
     game_state.last_roll.not_nil!.die_two.should eq(die_two)
     game_state.last_roll.not_nil!.total.should eq(token)
+  end
+
+  it "grants the remaining bank supply when only one player receives a scarce resource" do
+    game_state = build_game_state(1)
+    tile_id, tile_state = game_state.board.tile_states.find { |_, state| state.token && !state.resource.desert? }.not_nil!
+    vertex_ids = game_state.topology.tiles[tile_id].vertex_ids
+    player = game_state.current_player!
+
+    game_state.turn.phase = TurnPhase::Roll
+    game_state.board.buildings[vertex_ids[0]] = Building.new(player.id, BuildingKind::City)
+    game_state.board.buildings[vertex_ids[1]] = Building.new(player.id, BuildingKind::Settlement)
+    set_bank_resource!(game_state, tile_state.resource, 2)
+
+    token = tile_state.token.not_nil!
+    die_one = token > 6 ? 6 : 1
+    die_two = token - die_one
+    game_state.apply!(DiceRolled.new(2, die_one, die_two))
+
+    player.hand.count(tile_state.resource).should eq(2)
+    game_state.bank.resources.count(tile_state.resource).should eq(0)
+  end
+
+  it "does not distribute a scarce resource when multiple players would receive it" do
+    game_state = build_game_state(2)
+    tile_id, tile_state = game_state.board.tile_states.find { |_, state| state.token && !state.resource.desert? }.not_nil!
+    vertex_ids = game_state.topology.tiles[tile_id].vertex_ids
+    current_player = game_state.current_player!
+    other_player_id = (game_state.player_order - [current_player.id]).first
+
+    game_state.turn.phase = TurnPhase::Roll
+    game_state.board.buildings[vertex_ids[0]] = Building.new(current_player.id, BuildingKind::Settlement)
+    game_state.board.buildings[vertex_ids[1]] = Building.new(other_player_id, BuildingKind::Settlement)
+    set_bank_resource!(game_state, tile_state.resource, 1)
+
+    token = tile_state.token.not_nil!
+    die_one = token > 6 ? 6 : 1
+    die_two = token - die_one
+    game_state.apply!(DiceRolled.new(2, die_one, die_two))
+
+    current_player.hand.count(tile_state.resource).should eq(0)
+    game_state.player!(other_player_id).hand.count(tile_state.resource).should eq(0)
+    game_state.bank.resources.count(tile_state.resource).should eq(1)
   end
 
   it "requires robber discards before allowing the robber to move" do
