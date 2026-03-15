@@ -75,7 +75,6 @@ export async function POST(event: RequestEvent) {
 				shortCode: result.shortCode
 			}
 		});
-
 	} catch (error) {
 		console.error('Error creating new game:', error);
 		return json({ error: 'Internal server error while creating lobby' }, { status: 500 });

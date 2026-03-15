@@ -7,7 +7,7 @@ import { auth } from '$lib/auth';
 
 export const load: PageServerLoad = async (event) => {
 	const lobbyId = event.params.id.toUpperCase();
-	
+
 	// 1. Authenticate user
 	const session = await auth.api.getSession({
 		headers: event.request.headers
@@ -34,10 +34,7 @@ export const load: PageServerLoad = async (event) => {
 		});
 
 		if (!activePlayer) {
-			const [newPlayer] = await db
-				.insert(player)
-				.values({ userId: session.user.id })
-				.returning();
+			const [newPlayer] = await db.insert(player).values({ userId: session.user.id }).returning();
 			activePlayer = newPlayer;
 		}
 
@@ -67,7 +64,6 @@ export const load: PageServerLoad = async (event) => {
 			hostId: activeGame.hostPlayerId,
 			settings: activeGame.settings
 		};
-
 	} catch (e) {
 		console.error('Error joining lobby:', e);
 		throw error(500, 'Error joining lobby');

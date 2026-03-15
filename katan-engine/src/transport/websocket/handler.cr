@@ -91,6 +91,15 @@ module Katan::Engine::Transport::WebSocket
               end
             end
           end
+        when "start_game"
+          if payload = incoming.payload
+            lobby = @lobby_manager.get_or_create_lobby(lid)
+            if lobby.host_id == client.player_id
+              @lobby_manager.start_game(lid)
+            else
+              puts "Start game rejected: #{client.player_id} is not the host of #{lid}"
+            end
+          end
         when "ready"
           if payload = incoming.payload
             player_id = payload["player_id"]?.try(&.as_s?)

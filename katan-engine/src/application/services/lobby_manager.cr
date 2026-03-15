@@ -29,7 +29,6 @@ module Katan::Engine::Application
 
       player = lobby.find_player(player_id) || Domain::Player.new(player_id, name)
       player.name = name
-      player.ready = false
       player.mark_connected
       lobby.add_player(player)
 
@@ -148,6 +147,83 @@ module Katan::Engine::Application
           end
         end
       end
+    end
+
+    def start_game(lobby_id : String)
+      lobby = get_or_create_lobby(lobby_id)
+      game_state = GameState.new(
+        topology: BoardTopology.standard,
+        players: lobby.players.map { |player|
+          player_id = PlayerId.new(player.id)
+          {player_id, PlayerState.new(player_id, player.name)}
+        }.to_h,
+        settings: lobby.settings
+      )
+      payload_json = {
+        version: game_state.version,
+        turn: {
+          current_player_id: game_state.turn.current_player_id.value,
+          number: game_state.turn.number,
+          phase: game_state.turn.phase.to_s,
+        },
+        players: lobby.players.map { |player|
+          {
+            id: player.id,
+            name: player.name,
+          }
+        },
+        board: {
+          tiles: game_state.topology.tiles.values.map { |t|
+            {
+              id: t.id.value,
+              x: t.x,
+              y: t.y,
+              resource: game_state.board.tile_states[t.id].resource.to_s,
+              token: game_state.board.tile_states[t.id].token,
+              has_robber: game_state.board.robber_tile_id == t.id
+            }
+          },
+          vertices: game_state.topology.vertices.values.map { |v|
+            building = game_state.board.building_at?(v.id)
+            {
+              id: v.id.value,
+              x: v.x,
+              y: v.y,
+              building: building ? {
+                player_id: building.player_id.value,
+                kind: building.kind.to_s
+              } : nil
+            }
+          },
+          edges: game_state.topology.edges.values.map { |e|
+            road = game_state.board.road_at?(e.id)
+            {
+              id: e.id.value,
+              v1: e.vertex_ids[0].value,
+              v2: e.vertex_ids[1].value,
+              road: road ? {
+                player_id: road.player_id.value
+              } : nil
+            }
+          }
+        },
+        settings: lobby.settings,
+      }.to_json
+      @game_event_store.append(lobby_id, "game_started", nil, nil, nil, payload_json, "Game started.")
+      
+      if list = @clients[lobby_id]?
+        state_json = {
+          type: "game_started",
+          game_state: JSON.parse(payload_json)
+        }.to_json
+        list.each do |client|
+          client.send_json(state_json)
+        end
+      end
+      
+      broadcast_lobby_state(lobby_id)
+    rescue ex
+      puts "Failed to start game for #{lobby_id}: #{ex.message}"
     end
 
     private def remove_existing_clients(lobby_id : String, player_id : String, current_client : Transport::WebSocket::Client)

@@ -22,6 +22,13 @@
       "when": 1773435000000,
       "tag": "0002_game_event_log",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1773456000000,
+      "tag": "0003_game_snapshot",
+      "breakpoints": true
     }
   ]
 }

@@ -47,4 +47,24 @@ describe Katan::Engine::Application::LobbyManager do
 
     lobby.find_player("player-2").should be_nil
   end
+
+  it "preserves ready state when a player reconnects" do
+    manager = Katan::Engine::Application::LobbyManager.new
+    first_client = Katan::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    first_client.lobby_id = "ABC123"
+
+    manager.handle_join("ABC123", "player-1", "Alice", first_client)
+    manager.set_player_ready("ABC123", "player-1", true).should be_true
+    manager.disconnect_client(first_client)
+
+    second_client = Katan::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    second_client.lobby_id = "ABC123"
+    manager.handle_join("ABC123", "player-1", "Alice", second_client)
+
+    player = manager.get_or_create_lobby("ABC123").find_player("player-1")
+    player.should_not be_nil
+    player = player.not_nil!
+    player.ready.should be_true
+    player.connected.should be_true
+  end
 end
