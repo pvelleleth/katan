@@ -310,6 +310,144 @@ describe GameState do
     game_state.player!(player_two).victory_points.should eq(4)
   end
 
+  it "buys a development card, keeps it unplayable until end of turn, and decrements bank supply" do
+    game_state = build_game_state(1)
+    player = game_state.current_player!
+    target_tile_id = game_state.topology.tiles.keys.find { |tile_id| tile_id != game_state.board.robber_tile_id }.not_nil!
+
+    player.hand.sheep = 1
+    player.hand.wheat = 1
+    player.hand.ore = 1
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(DevelopmentCardPurchased.new(1, player.id, DevCard::Knight))
+
+    player.hand.sheep.should eq(0)
+    player.hand.wheat.should eq(0)
+    player.hand.ore.should eq(0)
+    game_state.bank.resources.sheep.should eq(20)
+    game_state.bank.resources.wheat.should eq(20)
+    game_state.bank.resources.ore.should eq(20)
+    game_state.bank.knight.should eq(13)
+    player.dev_cards.knight.should eq(0)
+    player.newly_purchased_dev_cards.knight.should eq(1)
+
+    expect_raises(Exception, "player does not have Knight") do
+      game_state.apply!(KnightPlayed.new(2, player.id, target_tile_id))
+    end
+
+    game_state.apply!(TurnEnded.new(2, player.id))
+    player.dev_cards.knight.should eq(1)
+    player.newly_purchased_dev_cards.knight.should eq(0)
+  end
+
+  it "counts purchased victory point cards toward score immediately" do
+    game_state = build_game_state(1)
+    player = game_state.current_player!
+
+    player.hand.sheep = 1
+    player.hand.wheat = 1
+    player.hand.ore = 1
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(DevelopmentCardPurchased.new(1, player.id, DevCard::VictoryPoint))
+
+    player.victory_points.should eq(1)
+    player.newly_purchased_dev_cards.victory_point.should eq(1)
+  end
+
+  it "plays a knight to move the robber and enforces one development card play per turn" do
+    game_state = build_game_state(1)
+    player = game_state.current_player!
+    target_tile_id = game_state.topology.tiles.keys.find { |tile_id| tile_id != game_state.board.robber_tile_id }.not_nil!
+
+    player.dev_cards.knight = 1
+    player.dev_cards.monopoly = 1
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(KnightPlayed.new(1, player.id, target_tile_id))
+
+    game_state.board.robber_tile_id.should eq(target_tile_id)
+    player.dev_cards.knight.should eq(0)
+    player.knights_played.should eq(1)
+
+    expect_raises(Exception, "can only play one development card per turn") do
+      game_state.apply!(MonopolyPlayed.new(2, player.id, Resource::Wood))
+    end
+  end
+
+  it "plays road building to place two free roads" do
+    game_state = build_game_state(1)
+    player = game_state.current_player!
+    path = find_simple_road_path(game_state.topology, 2)
+
+    game_state.board.buildings[path[:start_vertex_id]] = Building.new(player.id, BuildingKind::Settlement)
+    player.settlements_left = 4
+    player.dev_cards.road_building = 1
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(RoadBuildingPlayed.new(1, player.id, path[:edge_ids][0], path[:edge_ids][1]))
+
+    game_state.board.road_at?(path[:edge_ids][0]).not_nil!.player_id.should eq(player.id)
+    game_state.board.road_at?(path[:edge_ids][1]).not_nil!.player_id.should eq(player.id)
+    player.dev_cards.road_building.should eq(0)
+    player.roads_left.should eq(13)
+    player.victory_points.should eq(1)
+  end
+
+  it "rejects road building with one road when a second placement is available" do
+    game_state = build_game_state(1)
+    player = game_state.current_player!
+    path = find_simple_road_path(game_state.topology, 2)
+
+    game_state.board.buildings[path[:start_vertex_id]] = Building.new(player.id, BuildingKind::Settlement)
+    player.settlements_left = 4
+    player.dev_cards.road_building = 1
+    game_state.turn.phase = TurnPhase::Main
+
+    expect_raises(Exception, "road building must place a second road when possible") do
+      game_state.apply!(RoadBuildingPlayed.new(1, player.id, path[:edge_ids][0]))
+    end
+
+    game_state.board.road_at?(path[:edge_ids][0]).should be_nil
+    game_state.board.road_at?(path[:edge_ids][1]).should be_nil
+    player.dev_cards.road_building.should eq(1)
+    player.roads_left.should eq(15)
+  end
+
+  it "plays monopoly to collect one resource type from all opponents" do
+    game_state = build_game_state
+    player_one = game_state.player_order[0]
+    player_two = game_state.player_order[1]
+    current_player = game_state.player!(player_one)
+    other_player = game_state.player!(player_two)
+
+    current_player.dev_cards.monopoly = 1
+    other_player.hand.wheat = 3
+    game_state.turn.current_player_id = player_one
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(MonopolyPlayed.new(1, player_one, Resource::Wheat))
+
+    current_player.hand.wheat.should eq(3)
+    other_player.hand.wheat.should eq(0)
+    current_player.dev_cards.monopoly.should eq(0)
+  end
+
+  it "plays year of plenty to take two resources from the bank" do
+    game_state = build_game_state(1)
+    player = game_state.current_player!
+
+    player.dev_cards.year_of_plenty = 1
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(YearOfPlentyPlayed.new(1, player.id, Resource::Ore, Resource::Ore))
+
+    player.hand.ore.should eq(2)
+    game_state.bank.resources.ore.should eq(17)
+    player.dev_cards.year_of_plenty.should eq(0)
+  end
+
   it "transitions to game over when the current player reaches ten points" do
     game_state = build_game_state(1)
     player = game_state.current_player!

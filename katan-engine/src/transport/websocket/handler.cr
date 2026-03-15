@@ -91,7 +91,7 @@ module Katan::Engine::Transport::WebSocket
               end
             end
           end
-        when "start_game", "place_settlement", "place_road", "place_city", "roll_dice", "move_robber", "end_turn", "game_action"
+        when "start_game", "place_settlement", "place_road", "place_city", "buy_development_card", "play_knight", "play_road_building", "play_monopoly", "play_year_of_plenty", "roll_dice", "move_robber", "end_turn", "game_action"
           handle_gameplay_action(client, lid, incoming)
         when "ready"
           if payload = incoming.payload
@@ -141,6 +141,39 @@ module Katan::Engine::Transport::WebSocket
 
         vertex_id = payload["vertex_id"]?.try(&.as_s?)
         @lobby_manager.place_city(lobby_id, player_id, vertex_id) if vertex_id
+      when "buy_development_card"
+        return unless player_id = client.player_id
+
+        @lobby_manager.buy_development_card(lobby_id, player_id)
+      when "play_knight"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        tile_id = payload["tile_id"]?.try(&.as_s?)
+        @lobby_manager.play_knight(lobby_id, player_id, tile_id) if tile_id
+      when "play_road_building"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        first_edge_id = payload["first_edge_id"]?.try(&.as_s?)
+        second_edge_id = payload["second_edge_id"]?.try(&.as_s?)
+        @lobby_manager.play_road_building(lobby_id, player_id, first_edge_id, second_edge_id) if first_edge_id
+      when "play_monopoly"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        resource_name = payload["resource"]?.try(&.as_s?)
+        resource = parse_resource(resource_name)
+        @lobby_manager.play_monopoly(lobby_id, player_id, resource) if resource
+      when "play_year_of_plenty"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        first_resource_name = payload["first_resource"]?.try(&.as_s?)
+        second_resource_name = payload["second_resource"]?.try(&.as_s?)
+        first_resource = parse_resource(first_resource_name)
+        second_resource = parse_resource(second_resource_name)
+        @lobby_manager.play_year_of_plenty(lobby_id, player_id, first_resource, second_resource) if first_resource && second_resource
       when "roll_dice"
         return unless player_id = client.player_id
 
@@ -181,6 +214,25 @@ module Katan::Engine::Transport::WebSocket
       when "place_city"
         vertex_id = payload["vertex_id"]?.try(&.as_s?)
         @lobby_manager.place_city(lobby_id, player_id, vertex_id) if vertex_id
+      when "buy_development_card"
+        @lobby_manager.buy_development_card(lobby_id, player_id)
+      when "play_knight"
+        tile_id = payload["tile_id"]?.try(&.as_s?)
+        @lobby_manager.play_knight(lobby_id, player_id, tile_id) if tile_id
+      when "play_road_building"
+        first_edge_id = payload["first_edge_id"]?.try(&.as_s?)
+        second_edge_id = payload["second_edge_id"]?.try(&.as_s?)
+        @lobby_manager.play_road_building(lobby_id, player_id, first_edge_id, second_edge_id) if first_edge_id
+      when "play_monopoly"
+        resource_name = payload["resource"]?.try(&.as_s?)
+        resource = parse_resource(resource_name)
+        @lobby_manager.play_monopoly(lobby_id, player_id, resource) if resource
+      when "play_year_of_plenty"
+        first_resource_name = payload["first_resource"]?.try(&.as_s?)
+        second_resource_name = payload["second_resource"]?.try(&.as_s?)
+        first_resource = parse_resource(first_resource_name)
+        second_resource = parse_resource(second_resource_name)
+        @lobby_manager.play_year_of_plenty(lobby_id, player_id, first_resource, second_resource) if first_resource && second_resource
       when "roll_dice"
         @lobby_manager.roll_dice(lobby_id, player_id)
       when "move_robber"
@@ -190,6 +242,21 @@ module Katan::Engine::Transport::WebSocket
         @lobby_manager.end_turn(lobby_id, player_id)
       else
         puts "Unknown game action: #{action}"
+      end
+    end
+
+    private def parse_resource(name : String?) : Resource?
+      return nil unless name
+
+      case name.downcase
+      when "wood"   then Resource::Wood
+      when "brick"  then Resource::Brick
+      when "sheep"  then Resource::Sheep
+      when "wheat"  then Resource::Wheat
+      when "ore"    then Resource::Ore
+      when "desert" then Resource::Desert
+      else
+        nil
       end
     end
   end

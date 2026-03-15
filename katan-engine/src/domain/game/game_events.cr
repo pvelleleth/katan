@@ -39,6 +39,53 @@ class CityPlaced < GameEvent
   end
 end
 
+class DevelopmentCardPurchased < GameEvent
+  getter player_id : PlayerId
+  getter card : DevCard
+
+  def initialize(@version : Int32, @player_id : PlayerId, @card : DevCard)
+    super(@version)
+  end
+end
+
+class KnightPlayed < GameEvent
+  getter player_id : PlayerId
+  getter tile_id : TileId
+
+  def initialize(@version : Int32, @player_id : PlayerId, @tile_id : TileId)
+    super(@version)
+  end
+end
+
+class RoadBuildingPlayed < GameEvent
+  getter player_id : PlayerId
+  getter first_edge_id : EdgeId
+  getter second_edge_id : EdgeId?
+
+  def initialize(@version : Int32, @player_id : PlayerId, @first_edge_id : EdgeId, @second_edge_id : EdgeId? = nil)
+    super(@version)
+  end
+end
+
+class MonopolyPlayed < GameEvent
+  getter player_id : PlayerId
+  getter resource : Resource
+
+  def initialize(@version : Int32, @player_id : PlayerId, @resource : Resource)
+    super(@version)
+  end
+end
+
+class YearOfPlentyPlayed < GameEvent
+  getter player_id : PlayerId
+  getter first_resource : Resource
+  getter second_resource : Resource
+
+  def initialize(@version : Int32, @player_id : PlayerId, @first_resource : Resource, @second_resource : Resource)
+    super(@version)
+  end
+end
+
 class DiceRolled < GameEvent
   getter die_one : Int32
   getter die_two : Int32

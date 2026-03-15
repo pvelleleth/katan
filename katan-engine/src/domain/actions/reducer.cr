@@ -12,6 +12,16 @@ class GameState
       apply_road_placed!(event)
     when CityPlaced
       apply_city_placed!(event)
+    when DevelopmentCardPurchased
+      apply_development_card_purchased!(event)
+    when KnightPlayed
+      apply_knight_played!(event)
+    when RoadBuildingPlayed
+      apply_road_building_played!(event)
+    when MonopolyPlayed
+      apply_monopoly_played!(event)
+    when YearOfPlentyPlayed
+      apply_year_of_plenty_played!(event)
     when DiceRolled
       apply_dice_rolled!(event)
     when RobberMoved
@@ -91,6 +101,69 @@ class GameState
     player.cities_left -= 1
   end
 
+  private def apply_development_card_purchased!(event : DevelopmentCardPurchased) : Nil
+    validate_development_card_purchase!(event)
+    player = player!(event.player_id)
+
+    player.hand.pay_development_card!
+    @bank.deposit!(Resource::Sheep)
+    @bank.deposit!(Resource::Wheat)
+    @bank.deposit!(Resource::Ore)
+    @bank.withdraw_dev_card!(event.card)
+    player.newly_purchased_dev_cards.add(event.card)
+  end
+
+  private def apply_knight_played!(event : KnightPlayed) : Nil
+    validate_knight_play!(event)
+    player = player!(event.player_id)
+
+    player.dev_cards.remove(DevCard::Knight)
+    player.knights_played += 1
+    @board.robber_tile_id = event.tile_id
+    @turn.dev_card_played_this_turn = true
+  end
+
+  private def apply_road_building_played!(event : RoadBuildingPlayed) : Nil
+    validate_road_building_play!(event)
+    player = player!(event.player_id)
+
+    player.dev_cards.remove(DevCard::RoadBuilding)
+    place_road_from_dev_card!(player, event.first_edge_id)
+    place_road_from_dev_card!(player, event.second_edge_id.not_nil!) if event.second_edge_id
+    @turn.dev_card_played_this_turn = true
+  end
+
+  private def apply_monopoly_played!(event : MonopolyPlayed) : Nil
+    validate_monopoly_play!(event)
+    player = player!(event.player_id)
+    total_taken = 0
+
+    @player_order.each do |other_player_id|
+      next if other_player_id == event.player_id
+
+      other_player = player!(other_player_id)
+      amount = other_player.hand.count(event.resource)
+      next if amount.zero?
+
+      other_player.hand.remove(event.resource, amount)
+      total_taken += amount
+    end
+
+    player.dev_cards.remove(DevCard::Monopoly)
+    player.hand.add(event.resource, total_taken)
+    @turn.dev_card_played_this_turn = true
+  end
+
+  private def apply_year_of_plenty_played!(event : YearOfPlentyPlayed) : Nil
+    validate_year_of_plenty_play!(event)
+    player = player!(event.player_id)
+
+    player.dev_cards.remove(DevCard::YearOfPlenty)
+    grant_resource!(player, event.first_resource)
+    grant_resource!(player, event.second_resource)
+    @turn.dev_card_played_this_turn = true
+  end
+
   private def apply_dice_rolled!(event : DiceRolled) : Nil
     validate_dice_roll!(event)
     @last_roll = DiceRoll.new(event.die_one, event.die_two)
@@ -106,6 +179,8 @@ class GameState
 
   private def apply_turn_ended!(event : TurnEnded) : Nil
     validate_turn_end!(event)
+    player!(event.player_id).finalize_turn!
+    @turn.dev_card_played_this_turn = false
 
     idx = @player_order.index(@turn.current_player_id) || raise "current player missing"
     next_idx = (idx + 1) % @player_order.size
@@ -240,6 +315,7 @@ class GameState
     end
 
     @player_order.each do |player_id|
+      points_by_player[player_id] += player!(player_id).revealed_victory_point_cards
       player!(player_id).victory_points = points_by_player[player_id]
     end
   end
@@ -374,6 +450,67 @@ class GameState
     raise "can only end turn during the main phase" unless @turn.phase.main?
   end
 
+  private def validate_development_card_purchase!(event : DevelopmentCardPurchased) : Nil
+    raise "wrong player bought development card" unless event.player_id == @turn.current_player_id
+    raise "can only buy development cards during the main phase" unless @turn.phase.main?
+    raise "no development cards remaining" if @bank.dev_cards_remaining.zero?
+    raise "purchased development card does not match bank supply" unless @bank.count(event.card) > 0
+  end
+
+  private def validate_knight_play!(event : KnightPlayed) : Nil
+    validate_dev_card_play!(event.player_id, DevCard::Knight)
+    raise "unknown tile #{event.tile_id.value}" unless @topology.tiles.has_key?(event.tile_id)
+    raise "robber must move to a different tile" if event.tile_id == @board.robber_tile_id
+  end
+
+  private def validate_road_building_play!(event : RoadBuildingPlayed) : Nil
+    validate_dev_card_play!(event.player_id, DevCard::RoadBuilding)
+    edge_ids = [event.first_edge_id] of EdgeId
+    edge_ids << event.second_edge_id.not_nil! if event.second_edge_id
+    raise "road building cannot place the same road twice" unless edge_ids.uniq.size == edge_ids.size
+
+    player = player!(event.player_id)
+    raise "not enough roads remaining" unless player.roads_left >= edge_ids.size
+
+    planned_edge_ids = [] of EdgeId
+    edge_ids.each do |edge_id|
+      raise "unknown edge #{edge_id.value}" unless @topology.edges.has_key?(edge_id)
+      raise "edge already occupied" if @board.occupied_edge?(edge_id)
+      raise "road must connect to your network" unless road_connected_to_player_network_with_pending?(edge_id, event.player_id, planned_edge_ids)
+      planned_edge_ids << edge_id
+    end
+
+    if event.second_edge_id.nil? && player.roads_left > planned_edge_ids.size && road_building_follow_up_available?(event.player_id, planned_edge_ids)
+      raise "road building must place a second road when possible"
+    end
+  end
+
+  private def validate_monopoly_play!(event : MonopolyPlayed) : Nil
+    validate_dev_card_play!(event.player_id, DevCard::Monopoly)
+    raise "cannot choose desert for monopoly" if event.resource.desert?
+  end
+
+  private def validate_year_of_plenty_play!(event : YearOfPlentyPlayed) : Nil
+    validate_dev_card_play!(event.player_id, DevCard::YearOfPlenty)
+    raise "cannot choose desert for year of plenty" if event.first_resource.desert? || event.second_resource.desert?
+
+    if event.first_resource == event.second_resource
+      raise "insufficient #{event.first_resource} in bank" unless @bank.resources.count(event.first_resource) >= 2
+    else
+      raise "insufficient #{event.first_resource} in bank" unless @bank.resources.count(event.first_resource) >= 1
+      raise "insufficient #{event.second_resource} in bank" unless @bank.resources.count(event.second_resource) >= 1
+    end
+  end
+
+  private def validate_dev_card_play!(player_id : PlayerId, card : DevCard) : Nil
+    raise "wrong player played development card" unless player_id == @turn.current_player_id
+    raise "can only play development cards during the main phase" unless @turn.phase.main?
+    raise "can only play one development card per turn" if @turn.dev_card_played_this_turn
+
+    player = player!(player_id)
+    raise "player does not have #{card}" unless player.available_dev_cards(card) > 0
+  end
+
   private def settlement_phase?(phase : TurnPhase) : Bool
     setup_settlement_phase?(phase) || phase.main?
   end
@@ -401,12 +538,27 @@ class GameState
     vertex_connects_to_player_network?(a, player_id, edge_id) || vertex_connects_to_player_network?(b, player_id, edge_id)
   end
 
+  private def road_connected_to_player_network_with_pending?(edge_id : EdgeId, player_id : PlayerId, pending_edge_ids : Array(EdgeId)) : Bool
+    edge = @topology.edges[edge_id]
+    a, b = edge.vertex_ids
+
+    vertex_connects_to_player_network_with_pending?(a, player_id, edge_id, pending_edge_ids) || vertex_connects_to_player_network_with_pending?(b, player_id, edge_id, pending_edge_ids)
+  end
+
   private def vertex_connects_to_player_network?(vertex_id : VertexId, player_id : PlayerId, pending_edge_id : EdgeId) : Bool
     if building = @board.building_at?(vertex_id)
       return building.player_id == player_id
     end
 
     player_road_ids_touching_vertex(vertex_id, player_id, pending_edge_id).any?
+  end
+
+  private def vertex_connects_to_player_network_with_pending?(vertex_id : VertexId, player_id : PlayerId, pending_edge_id : EdgeId, pending_edge_ids : Array(EdgeId)) : Bool
+    if building = @board.building_at?(vertex_id)
+      return building.player_id == player_id
+    end
+
+    player_road_ids_touching_vertex_with_pending(vertex_id, player_id, pending_edge_id, pending_edge_ids).any?
   end
 
   private def pending_setup_settlement_vertex!(player_id : PlayerId) : VertexId
@@ -426,5 +578,29 @@ class GameState
       road = @board.road_at?(edge_id)
       !!road && road.player_id == player_id
     end
+  end
+
+  private def player_road_ids_touching_vertex_with_pending(vertex_id : VertexId, player_id : PlayerId, exclude_edge_id : EdgeId? = nil, pending_edge_ids : Array(EdgeId) = [] of EdgeId) : Array(EdgeId)
+    @topology.vertices[vertex_id].edge_ids.select do |edge_id|
+      next false if exclude_edge_id && edge_id == exclude_edge_id
+      next true if pending_edge_ids.includes?(edge_id)
+
+      road = @board.road_at?(edge_id)
+      !!road && road.player_id == player_id
+    end
+  end
+
+  private def road_building_follow_up_available?(player_id : PlayerId, pending_edge_ids : Array(EdgeId)) : Bool
+    @topology.edges.each_key.any? do |edge_id|
+      next false if pending_edge_ids.includes?(edge_id)
+      next false if @board.occupied_edge?(edge_id)
+
+      road_connected_to_player_network_with_pending?(edge_id, player_id, pending_edge_ids)
+    end
+  end
+
+  private def place_road_from_dev_card!(player : PlayerState, edge_id : EdgeId) : Nil
+    @board.roads[edge_id] = Road.new(player.id)
+    player.roads_left -= 1
   end
 end

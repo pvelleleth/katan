@@ -44,6 +44,17 @@ class ResourceHand
     @ore -= 3
   end
 
+  def can_afford_development_card? : Bool
+    @sheep >= 1 && @wheat >= 1 && @ore >= 1
+  end
+
+  def pay_development_card!
+    raise "cannot afford development card" unless can_afford_development_card?
+    @sheep -= 1
+    @wheat -= 1
+    @ore -= 1
+  end
+
   def add(resource : Resource, amount : Int32 = 1)
     case resource
     when .wood?  then @wood += amount
@@ -67,6 +78,11 @@ class ResourceHand
       0
     end
   end
+
+  def remove(resource : Resource, amount : Int32 = 1) : Nil
+    raise "insufficient #{resource} in hand" unless count(resource) >= amount
+    add(resource, -amount)
+  end
 end
 
 class PlayerState
@@ -78,6 +94,8 @@ class PlayerState
   property cities_left : Int32
   property knights_played : Int32
   property victory_points : Int32
+  getter dev_cards : DevCardHand
+  getter newly_purchased_dev_cards : DevCardHand
 
   def initialize(@id : PlayerId, @name : String)
     @hand = ResourceHand.new
@@ -86,6 +104,24 @@ class PlayerState
     @cities_left = 4
     @knights_played = 0
     @victory_points = 0
+    @dev_cards = DevCardHand.new
+    @newly_purchased_dev_cards = DevCardHand.new
+  end
+
+  def total_dev_cards : Int32
+    @dev_cards.total + @newly_purchased_dev_cards.total
+  end
+
+  def available_dev_cards(card : DevCard) : Int32
+    @dev_cards.count(card)
+  end
+
+  def revealed_victory_point_cards : Int32
+    @dev_cards.victory_point + @newly_purchased_dev_cards.victory_point
+  end
+
+  def finalize_turn! : Nil
+    @dev_cards.merge!(@newly_purchased_dev_cards)
   end
 end
 
@@ -93,8 +129,9 @@ class TurnState
   property current_player_id : PlayerId
   property number : Int32
   property phase : TurnPhase
+  property dev_card_played_this_turn : Bool
 
-  def initialize(@current_player_id : PlayerId, @number : Int32, @phase : TurnPhase)
+  def initialize(@current_player_id : PlayerId, @number : Int32, @phase : TurnPhase, @dev_card_played_this_turn = false)
   end
 end
 
@@ -127,7 +164,8 @@ class GameState
   def initialize(
     @topology : BoardTopology,
     @players : Hash(PlayerId, PlayerState),
-    @settings : Hash(String, JSON::Any)
+    @settings : Hash(String, JSON::Any),
+    @rng : Random = Random.new
   )
     @version = 0
     @last_roll = nil
@@ -137,9 +175,8 @@ class GameState
     @largest_army_size = 0
     @winner_player_id = nil
     @bank = Bank.new
-    rng = Random.new
-    @player_order = @players.keys.shuffle(random: rng)
-    board_setup = BoardSetupGenerator.generate(@topology, rng)
+    @player_order = @players.keys.shuffle(random: @rng)
+    board_setup = BoardSetupGenerator.generate(@topology, @rng)
     @board = BoardState.new(
       tile_states: board_setup.tile_setups.map { |tile_setup| {tile_setup.tile_id, TileState.new(tile_setup.resource, tile_setup.token) } }.to_h,
       robber_tile_id: board_setup.robber_tile_id,

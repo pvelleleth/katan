@@ -219,6 +219,74 @@ module Katan::Engine::Application
       puts "Failed to place city for #{lobby_id}: #{ex.message}"
     end
 
+    def buy_development_card(lobby_id : String, player_id : String)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      actor = PlayerId.new(player_id)
+      
+      # Validate purchase before sampling to avoid RNG contamination from rejected attempts
+      validate_development_card_purchase!(game_state, actor)
+      
+      card = game_state.bank.sample_dev_card(Random::DEFAULT)
+      event = DevelopmentCardPurchased.new(next_version(game_state), actor, card)
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "development_card_purchased", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} bought a development card.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to buy development card for #{lobby_id}: #{ex.message}"
+    end
+    
+    private def validate_development_card_purchase!(game_state : GameState, player_id : PlayerId) : Nil
+      raise "wrong player bought development card" unless player_id == game_state.turn.current_player_id
+      raise "can only buy development cards during the main phase" unless game_state.turn.phase.main?
+      raise "no development cards remaining" if game_state.bank.dev_cards_remaining.zero?
+      raise "player does not have enough resources" unless game_state.player!(player_id).hand.can_afford_development_card?
+    end
+
+    def play_knight(lobby_id : String, player_id : String, tile_id : String)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = KnightPlayed.new(next_version(game_state), PlayerId.new(player_id), TileId.new(tile_id))
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "knight_played", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} played a knight.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to play knight for #{lobby_id}: #{ex.message}"
+    end
+
+    def play_road_building(lobby_id : String, player_id : String, first_edge_id : String, second_edge_id : String? = nil)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = RoadBuildingPlayed.new(next_version(game_state), PlayerId.new(player_id), EdgeId.new(first_edge_id), second_edge_id ? EdgeId.new(second_edge_id) : nil)
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "road_building_played", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} played road building.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to play road building for #{lobby_id}: #{ex.message}"
+    end
+
+    def play_monopoly(lobby_id : String, player_id : String, resource : Resource)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = MonopolyPlayed.new(next_version(game_state), PlayerId.new(player_id), resource)
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "monopoly_played", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} played monopoly.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to play monopoly for #{lobby_id}: #{ex.message}"
+    end
+
+    def play_year_of_plenty(lobby_id : String, player_id : String, first_resource : Resource, second_resource : Resource)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = YearOfPlentyPlayed.new(next_version(game_state), PlayerId.new(player_id), first_resource, second_resource)
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "year_of_plenty_played", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} played year of plenty.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to play year of plenty for #{lobby_id}: #{ex.message}"
+    end
+
     def roll_dice(lobby_id : String, player_id : String)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       actor = PlayerId.new(player_id)
@@ -355,12 +423,17 @@ module Katan::Engine::Application
             has_longest_road: game_state.longest_road_player_id == player.id,
             has_largest_army: game_state.largest_army_player_id == player.id,
             resource_count: total_resources(player.hand),
+            development_card_count: player.total_dev_cards,
             hand: include_all_hands || player.id.value == viewer_player_id ? {
               wood: player.hand.wood,
               brick: player.hand.brick,
               sheep: player.hand.sheep,
               wheat: player.hand.wheat,
               ore: player.hand.ore,
+            } : nil,
+            development_cards: include_all_hands || player.id.value == viewer_player_id ? {
+              playable: player.dev_cards.to_json_payload,
+              newly_purchased: player.newly_purchased_dev_cards.to_json_payload,
             } : nil,
           }
         },
@@ -437,6 +510,38 @@ module Katan::Engine::Application
           version: event.version,
           player_id: event.player_id.value,
           vertex_id: event.vertex_id.value,
+        }
+      when DevelopmentCardPurchased
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          card: event.card.to_s,
+        }
+      when KnightPlayed
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          tile_id: event.tile_id.value,
+        }
+      when RoadBuildingPlayed
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          first_edge_id: event.first_edge_id.value,
+          second_edge_id: event.second_edge_id.try(&.value),
+        }
+      when MonopolyPlayed
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          resource: event.resource.to_s,
+        }
+      when YearOfPlentyPlayed
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          first_resource: event.first_resource.to_s,
+          second_resource: event.second_resource.to_s,
         }
       when DiceRolled
         {
