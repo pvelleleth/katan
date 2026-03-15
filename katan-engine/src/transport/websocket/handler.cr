@@ -91,7 +91,7 @@ module Katan::Engine::Transport::WebSocket
               end
             end
           end
-        when "start_game", "place_settlement", "place_road", "place_city", "buy_development_card", "play_knight", "play_road_building", "play_monopoly", "play_year_of_plenty", "roll_dice", "move_robber", "end_turn", "game_action"
+        when "start_game", "place_settlement", "place_road", "place_city", "buy_development_card", "play_knight", "play_road_building", "play_monopoly", "play_year_of_plenty", "trade_with_player", "trade_with_bank", "trade_with_harbor", "roll_dice", "move_robber", "end_turn", "game_action"
           handle_gameplay_action(client, lid, incoming)
         when "ready"
           if payload = incoming.payload
@@ -174,6 +174,23 @@ module Katan::Engine::Transport::WebSocket
         first_resource = parse_resource(first_resource_name)
         second_resource = parse_resource(second_resource_name)
         @lobby_manager.play_year_of_plenty(lobby_id, player_id, first_resource, second_resource) if first_resource && second_resource
+      when "trade_with_player"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        partner_player_id = payload["partner_player_id"]?.try(&.as_s?)
+        offered = parse_resource_pile(payload["offered"]?)
+        requested = parse_resource_pile(payload["requested"]?)
+        @lobby_manager.trade_with_player(lobby_id, player_id, partner_player_id, offered, requested) if partner_player_id && offered && requested
+      when "trade_with_bank", "trade_with_harbor"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        offered_resource_name = payload["offered_resource"]?.try(&.as_s?)
+        requested_resource_name = payload["requested_resource"]?.try(&.as_s?)
+        offered_resource = parse_resource(offered_resource_name)
+        requested_resource = parse_resource(requested_resource_name)
+        @lobby_manager.trade_with_bank(lobby_id, player_id, offered_resource, requested_resource) if offered_resource && requested_resource
       when "roll_dice"
         return unless player_id = client.player_id
 
@@ -233,6 +250,17 @@ module Katan::Engine::Transport::WebSocket
         first_resource = parse_resource(first_resource_name)
         second_resource = parse_resource(second_resource_name)
         @lobby_manager.play_year_of_plenty(lobby_id, player_id, first_resource, second_resource) if first_resource && second_resource
+      when "trade_with_player"
+        partner_player_id = payload["partner_player_id"]?.try(&.as_s?)
+        offered = parse_resource_pile(payload["offered"]?)
+        requested = parse_resource_pile(payload["requested"]?)
+        @lobby_manager.trade_with_player(lobby_id, player_id, partner_player_id, offered, requested) if partner_player_id && offered && requested
+      when "trade_with_bank", "trade_with_harbor"
+        offered_resource_name = payload["offered_resource"]?.try(&.as_s?)
+        requested_resource_name = payload["requested_resource"]?.try(&.as_s?)
+        offered_resource = parse_resource(offered_resource_name)
+        requested_resource = parse_resource(requested_resource_name)
+        @lobby_manager.trade_with_bank(lobby_id, player_id, offered_resource, requested_resource) if offered_resource && requested_resource
       when "roll_dice"
         @lobby_manager.roll_dice(lobby_id, player_id)
       when "move_robber"
@@ -258,6 +286,29 @@ module Katan::Engine::Transport::WebSocket
       else
         nil
       end
+    end
+
+    private def parse_resource_pile(value : JSON::Any?) : ResourcePile?
+      return nil unless hash = value.try(&.as_h?)
+
+      wood = resource_pile_count(hash, "wood")
+      brick = resource_pile_count(hash, "brick")
+      sheep = resource_pile_count(hash, "sheep")
+      wheat = resource_pile_count(hash, "wheat")
+      ore = resource_pile_count(hash, "ore")
+
+      return nil if wood < 0 || brick < 0 || sheep < 0 || wheat < 0 || ore < 0
+
+      ResourcePile.new(wood, brick, sheep, wheat, ore)
+    end
+
+    private def resource_pile_count(hash : Hash(String, JSON::Any), key : String) : Int32
+      value = hash[key]?
+      return 0 unless value
+
+      value.as_i.to_i32
+    rescue
+      0
     end
   end
 end

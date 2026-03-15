@@ -86,6 +86,27 @@ class YearOfPlentyPlayed < GameEvent
   end
 end
 
+class PlayerTradeCompleted < GameEvent
+  getter player_id : PlayerId
+  getter partner_player_id : PlayerId
+  getter offered : ResourcePile
+  getter requested : ResourcePile
+
+  def initialize(@version : Int32, @player_id : PlayerId, @partner_player_id : PlayerId, @offered : ResourcePile, @requested : ResourcePile)
+    super(@version)
+  end
+end
+
+class BankTradeCompleted < GameEvent
+  getter player_id : PlayerId
+  getter offered_resource : Resource
+  getter requested_resource : Resource
+
+  def initialize(@version : Int32, @player_id : PlayerId, @offered_resource : Resource, @requested_resource : Resource)
+    super(@version)
+  end
+end
+
 class DiceRolled < GameEvent
   getter die_one : Int32
   getter die_two : Int32

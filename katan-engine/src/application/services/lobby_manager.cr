@@ -287,6 +287,46 @@ module Katan::Engine::Application
       puts "Failed to play year of plenty for #{lobby_id}: #{ex.message}"
     end
 
+    def trade_with_player(lobby_id : String, player_id : String, partner_player_id : String, offered : ResourcePile, requested : ResourcePile)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = PlayerTradeCompleted.new(next_version(game_state), PlayerId.new(player_id), PlayerId.new(partner_player_id), offered, requested)
+
+      game_state.apply!(event)
+      actor_name = game_state.player!(event.player_id).name
+      partner_name = game_state.player!(event.partner_player_id).name
+      persist_game_event(
+        lobby_id,
+        game_state,
+        "player_trade_completed",
+        player_id,
+        serialize_event_payload(event).to_json,
+        "#{actor_name} traded with #{partner_name}."
+      )
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to trade with player for #{lobby_id}: #{ex.message}"
+    end
+
+    def trade_with_bank(lobby_id : String, player_id : String, offered_resource : Resource, requested_resource : Resource)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = BankTradeCompleted.new(next_version(game_state), PlayerId.new(player_id), offered_resource, requested_resource)
+
+      game_state.apply!(event)
+      actor_name = game_state.player!(event.player_id).name
+      offered_amount = bank_trade_rate_for(game_state, event.player_id, event.offered_resource)
+      persist_game_event(
+        lobby_id,
+        game_state,
+        "bank_trade_completed",
+        player_id,
+        serialize_event_payload(event).to_json,
+        "#{actor_name} traded #{offered_amount} #{event.offered_resource} with the bank for #{event.requested_resource}."
+      )
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to trade with bank for #{lobby_id}: #{ex.message}"
+    end
+
     def roll_dice(lobby_id : String, player_id : String)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       actor = PlayerId.new(player_id)
@@ -472,6 +512,13 @@ module Katan::Engine::Application
                 player_id: road.player_id.value
               } : nil
             }
+          },
+          harbors: game_state.board.harbors.sort_by(&.id.value).map { |harbor|
+            {
+              id: harbor.id.value,
+              vertex_ids: [harbor.vertex_ids[0].value, harbor.vertex_ids[1].value],
+              kind: harbor.kind.to_s,
+            }
           }
         },
         awards: {
@@ -543,6 +590,21 @@ module Katan::Engine::Application
           first_resource: event.first_resource.to_s,
           second_resource: event.second_resource.to_s,
         }
+      when PlayerTradeCompleted
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          partner_player_id: event.partner_player_id.value,
+          offered: event.offered.to_json_payload,
+          requested: event.requested.to_json_payload,
+        }
+      when BankTradeCompleted
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          offered_resource: event.offered_resource.to_s,
+          requested_resource: event.requested_resource.to_s,
+        }
       when DiceRolled
         {
           version: event.version,
@@ -588,6 +650,45 @@ module Katan::Engine::Application
 
     private def total_resources(hand : ResourceHand) : Int32
       hand.wood + hand.brick + hand.sheep + hand.wheat + hand.ore
+    end
+
+    private def bank_trade_rate_for(game_state : GameState, player_id : PlayerId, resource : Resource) : Int32
+      return 4 if resource.desert?
+
+      best_rate = 4
+
+      game_state.board.harbors.each do |harbor|
+        next unless harbor_claimed_by?(game_state, harbor, player_id)
+
+        rate = case harbor.kind
+               when .three_to_one?
+                 3
+               when .wood_two_to_one?
+                 resource.wood? ? 2 : nil
+               when .brick_two_to_one?
+                 resource.brick? ? 2 : nil
+               when .sheep_two_to_one?
+                 resource.sheep? ? 2 : nil
+               when .wheat_two_to_one?
+                 resource.wheat? ? 2 : nil
+               when .ore_two_to_one?
+                 resource.ore? ? 2 : nil
+               end
+
+        best_rate = Math.min(best_rate, rate) if rate
+      end
+
+      best_rate
+    end
+
+    private def harbor_claimed_by?(game_state : GameState, harbor : HarborAssignment, player_id : PlayerId) : Bool
+      harbor.vertex_ids.any? do |vertex_id|
+        if building = game_state.board.building_at?(vertex_id)
+          building.player_id == player_id
+        else
+          false
+        end
+      end
     end
 
     private def log_event(lobby_id : String, event_type : String, actor_player_id : String?, payload_json : String, message : String)

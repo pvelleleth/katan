@@ -45,6 +45,33 @@ struct ResourcePile
       0
     end
   end
+
+  def total : Int32
+    @wood + @brick + @sheep + @wheat + @ore
+  end
+
+  def empty? : Bool
+    total.zero?
+  end
+
+  def each_nonzero(& : Resource, Int32 ->) : Nil
+    yield Resource::Wood, @wood if @wood > 0
+    yield Resource::Brick, @brick if @brick > 0
+    yield Resource::Sheep, @sheep if @sheep > 0
+    yield Resource::Wheat, @wheat if @wheat > 0
+    yield Resource::Ore, @ore if @ore > 0
+  end
+
+  def to_json_payload
+    {
+      wood: @wood,
+      brick: @brick,
+      sheep: @sheep,
+      wheat: @wheat,
+      ore: @ore,
+      total: total,
+    }
+  end
 end
 
 enum BuildingKind

@@ -142,7 +142,14 @@ describe Katan::Engine::Application::LobbyManager do
     game_state = manager.games["DEF456"]
     complete_setup_through_manager!(manager, "DEF456")
 
-    producer_tile_id, producer_tile_state = game_state.board.tile_states.find { |_, state| state.token && !state.resource.desert? }.not_nil!
+    producer_tile_id, producer_tile_state = game_state.board.tile_states.find do |tile_id, state|
+      next false unless state.token && !state.resource.desert?
+
+      game_state.topology.tiles[tile_id].vertex_ids.any? do |vertex_id|
+        building = game_state.board.building_at?(vertex_id)
+        building && building.player_id == game_state.turn.current_player_id
+      end
+    end.not_nil!
     target_total = producer_tile_state.token.not_nil!
     die_one = target_total > 6 ? 6 : 1
     die_two = target_total - die_one

@@ -1,4 +1,5 @@
 require "../game/topology"
+require "./board_setup"
 
 struct TileState
   property resource : Resource
@@ -27,11 +28,13 @@ class BoardState
   getter tile_states : Hash(TileId, TileState)
   getter buildings : Hash(VertexId, Building)
   getter roads : Hash(EdgeId, Road)
+  property harbors : Array(HarborAssignment)
   property robber_tile_id : TileId
 
   def initialize(
     @tile_states : Hash(TileId, TileState),
     @robber_tile_id : TileId,
+    @harbors : Array(HarborAssignment) = [] of HarborAssignment,
     @buildings : Hash(VertexId, Building) = {} of VertexId => Building,
     @roads : Hash(EdgeId, Road) = {} of EdgeId => Road
   )

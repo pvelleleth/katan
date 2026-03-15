@@ -83,6 +83,33 @@ class ResourceHand
     raise "insufficient #{resource} in hand" unless count(resource) >= amount
     add(resource, -amount)
   end
+
+  def can_cover?(pile : ResourcePile) : Bool
+    count(Resource::Wood) >= pile.wood &&
+      count(Resource::Brick) >= pile.brick &&
+      count(Resource::Sheep) >= pile.sheep &&
+      count(Resource::Wheat) >= pile.wheat &&
+      count(Resource::Ore) >= pile.ore
+  end
+
+  def add(pile : ResourcePile) : Nil
+    pile.each_nonzero do |resource, amount|
+      add(resource, amount)
+    end
+  end
+
+  def remove(pile : ResourcePile) : Nil
+    raise "insufficient resources in hand" unless can_cover?(pile)
+
+    pile.each_nonzero do |resource, amount|
+      remove(resource, amount)
+    end
+  end
+
+  def transfer_to!(other : ResourceHand, pile : ResourcePile) : Nil
+    remove(pile)
+    other.add(pile)
+  end
 end
 
 class PlayerState
@@ -180,6 +207,7 @@ class GameState
     @board = BoardState.new(
       tile_states: board_setup.tile_setups.map { |tile_setup| {tile_setup.tile_id, TileState.new(tile_setup.resource, tile_setup.token) } }.to_h,
       robber_tile_id: board_setup.robber_tile_id,
+      harbors: board_setup.harbors,
       buildings: {} of VertexId => Building,
       roads: {} of EdgeId => Road
     )

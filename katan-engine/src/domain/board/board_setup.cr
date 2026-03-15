@@ -10,10 +10,11 @@ enum HarborKind
 end
 
 struct HarborAssignment
+  getter id : HarborSlotId
   getter vertex_ids : Tuple(VertexId, VertexId)
   getter kind : HarborKind
 
-  def initialize(@vertex_ids : Tuple(VertexId, VertexId), @kind : HarborKind)
+  def initialize(@id : HarborSlotId, @vertex_ids : Tuple(VertexId, VertexId), @kind : HarborKind)
   end
 end
 
@@ -91,10 +92,10 @@ class BoardSetupGenerator
       HarborKind::OreTwoToOne,
     ].shuffle(random: rng)
 
-    harbor_slots = topology.harbor_slots.values.sort_by(&.id.value).map(&.vertex_ids)
+    harbor_slots = topology.harbor_slots.values.sort_by(&.id.value)
 
     harbor_slots.zip(harbor_kinds).map do |slot, kind|
-      HarborAssignment.new(slot, kind)
+      HarborAssignment.new(slot.id, slot.vertex_ids, kind)
     end
   end
 end

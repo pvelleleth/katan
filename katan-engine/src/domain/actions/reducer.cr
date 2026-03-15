@@ -22,6 +22,10 @@ class GameState
       apply_monopoly_played!(event)
     when YearOfPlentyPlayed
       apply_year_of_plenty_played!(event)
+    when PlayerTradeCompleted
+      apply_player_trade_completed!(event)
+    when BankTradeCompleted
+      apply_bank_trade_completed!(event)
     when DiceRolled
       apply_dice_rolled!(event)
     when RobberMoved
@@ -162,6 +166,27 @@ class GameState
     grant_resource!(player, event.first_resource)
     grant_resource!(player, event.second_resource)
     @turn.dev_card_played_this_turn = true
+  end
+
+  private def apply_player_trade_completed!(event : PlayerTradeCompleted) : Nil
+    validate_player_trade_completed!(event)
+
+    player = player!(event.player_id)
+    partner = player!(event.partner_player_id)
+
+    player.hand.transfer_to!(partner.hand, event.offered)
+    partner.hand.transfer_to!(player.hand, event.requested)
+  end
+
+  private def apply_bank_trade_completed!(event : BankTradeCompleted) : Nil
+    validate_bank_trade_completed!(event)
+
+    player = player!(event.player_id)
+    offered_amount = bank_trade_rate_for(event.player_id, event.offered_resource)
+
+    player.hand.remove(event.offered_resource, offered_amount)
+    @bank.deposit!(event.offered_resource, offered_amount)
+    grant_resource!(player, event.requested_resource)
   end
 
   private def apply_dice_rolled!(event : DiceRolled) : Nil
@@ -502,6 +527,40 @@ class GameState
     end
   end
 
+  private def validate_player_trade_completed!(event : PlayerTradeCompleted) : Nil
+    raise "wrong player completed trade" unless event.player_id == @turn.current_player_id
+    raise "can only trade during the main phase" unless @turn.phase.main?
+    raise "cannot trade with yourself" if event.partner_player_id == event.player_id
+    raise "unknown trading partner #{event.partner_player_id.value}" unless @players.has_key?(event.partner_player_id)
+    raise "trade offer cannot contain negative resource counts" if has_negative_resources?(event.offered)
+    raise "trade request cannot contain negative resource counts" if has_negative_resources?(event.requested)
+    raise "trade offer cannot be empty" if event.offered.empty?
+    raise "trade request cannot be empty" if event.requested.empty?
+
+    player = player!(event.player_id)
+    partner = player!(event.partner_player_id)
+
+    raise "player does not have offered resources" unless player.hand.can_cover?(event.offered)
+    raise "trading partner does not have requested resources" unless partner.hand.can_cover?(event.requested)
+  end
+
+  private def validate_bank_trade_completed!(event : BankTradeCompleted) : Nil
+    raise "wrong player completed bank trade" unless event.player_id == @turn.current_player_id
+    raise "can only trade during the main phase" unless @turn.phase.main?
+    raise "cannot trade desert with the bank" if event.offered_resource.desert? || event.requested_resource.desert?
+    raise "bank trade must change resources" if event.offered_resource == event.requested_resource
+
+    player = player!(event.player_id)
+    offered_amount = bank_trade_rate_for(event.player_id, event.offered_resource)
+
+    raise "player does not have enough #{event.offered_resource} to trade" unless player.hand.count(event.offered_resource) >= offered_amount
+    raise "insufficient #{event.requested_resource} in bank" unless @bank.resources.count(event.requested_resource) >= 1
+  end
+
+  private def has_negative_resources?(pile : ResourcePile) : Bool
+    pile.wood < 0 || pile.brick < 0 || pile.sheep < 0 || pile.wheat < 0 || pile.ore < 0
+  end
+
   private def validate_dev_card_play!(player_id : PlayerId, card : DevCard) : Nil
     raise "wrong player played development card" unless player_id == @turn.current_player_id
     raise "can only play development cards during the main phase" unless @turn.phase.main?
@@ -602,5 +661,47 @@ class GameState
   private def place_road_from_dev_card!(player : PlayerState, edge_id : EdgeId) : Nil
     @board.roads[edge_id] = Road.new(player.id)
     player.roads_left -= 1
+  end
+
+  private def bank_trade_rate_for(player_id : PlayerId, resource : Resource) : Int32
+    return 4 if resource.desert?
+
+    best_rate = 4
+
+    @board.harbors.each do |harbor|
+      next unless player_controls_harbor?(player_id, harbor)
+
+      rate = harbor_trade_rate(harbor.kind, resource)
+      best_rate = Math.min(best_rate, rate) if rate
+    end
+
+    best_rate
+  end
+
+  private def player_controls_harbor?(player_id : PlayerId, harbor : HarborAssignment) : Bool
+    harbor.vertex_ids.any? do |vertex_id|
+      if building = @board.building_at?(vertex_id)
+        building.player_id == player_id
+      else
+        false
+      end
+    end
+  end
+
+  private def harbor_trade_rate(kind : HarborKind, resource : Resource) : Int32?
+    case kind
+    when .three_to_one?
+      3
+    when .wood_two_to_one?
+      resource.wood? ? 2 : nil
+    when .brick_two_to_one?
+      resource.brick? ? 2 : nil
+    when .sheep_two_to_one?
+      resource.sheep? ? 2 : nil
+    when .wheat_two_to_one?
+      resource.wheat? ? 2 : nil
+    when .ore_two_to_one?
+      resource.ore? ? 2 : nil
+    end
   end
 end

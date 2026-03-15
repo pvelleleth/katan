@@ -448,6 +448,131 @@ describe GameState do
     player.dev_cards.year_of_plenty.should eq(0)
   end
 
+  it "completes a player-to-player trade with multi-resource bundles" do
+    game_state = build_game_state
+    player_one = game_state.player_order[0]
+    player_two = game_state.player_order[1]
+    current_player = game_state.player!(player_one)
+    other_player = game_state.player!(player_two)
+
+    current_player.hand.wood = 2
+    current_player.hand.brick = 1
+    other_player.hand.sheep = 1
+    other_player.hand.wheat = 2
+    game_state.turn.current_player_id = player_one
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(
+      PlayerTradeCompleted.new(
+        1,
+        player_one,
+        player_two,
+        ResourcePile.new(2, 1, 0, 0, 0),
+        ResourcePile.new(0, 0, 1, 2, 0)
+      )
+    )
+
+    current_player.hand.wood.should eq(0)
+    current_player.hand.brick.should eq(0)
+    current_player.hand.sheep.should eq(1)
+    current_player.hand.wheat.should eq(2)
+    other_player.hand.wood.should eq(2)
+    other_player.hand.brick.should eq(1)
+    other_player.hand.sheep.should eq(0)
+    other_player.hand.wheat.should eq(0)
+  end
+
+  it "rejects player-to-player trades with negative offered resources" do
+    game_state = build_game_state
+    player_one = game_state.player_order[0]
+    player_two = game_state.player_order[1]
+    current_player = game_state.player!(player_one)
+    other_player = game_state.player!(player_two)
+
+    current_player.hand.wood = 2
+    current_player.hand.brick = 1
+    other_player.hand.sheep = 1
+    other_player.hand.wheat = 2
+    game_state.turn.current_player_id = player_one
+    game_state.turn.phase = TurnPhase::Main
+
+    expect_raises(Exception, "negative") do
+      game_state.apply!(
+        PlayerTradeCompleted.new(
+          1,
+          player_one,
+          player_two,
+          ResourcePile.new(-1, 1, 0, 0, 0),
+          ResourcePile.new(0, 0, 1, 2, 0)
+        )
+      )
+    end
+  end
+
+  it "rejects player-to-player trades with negative requested resources" do
+    game_state = build_game_state
+    player_one = game_state.player_order[0]
+    player_two = game_state.player_order[1]
+    current_player = game_state.player!(player_one)
+    other_player = game_state.player!(player_two)
+
+    current_player.hand.wood = 2
+    current_player.hand.brick = 1
+    other_player.hand.sheep = 1
+    other_player.hand.wheat = 2
+    game_state.turn.current_player_id = player_one
+    game_state.turn.phase = TurnPhase::Main
+
+    expect_raises(Exception, "negative") do
+      game_state.apply!(
+        PlayerTradeCompleted.new(
+          1,
+          player_one,
+          player_two,
+          ResourcePile.new(2, 1, 0, 0, 0),
+          ResourcePile.new(0, 0, -1, 2, 0)
+        )
+      )
+    end
+  end
+
+  it "trades 4 to 1 with the bank when the player has no harbor" do
+    game_state = build_game_state(1)
+    player = game_state.current_player!
+
+    game_state.board.harbors.clear
+    player.hand.wood = 4
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(BankTradeCompleted.new(1, player.id, Resource::Wood, Resource::Ore))
+
+    player.hand.wood.should eq(0)
+    player.hand.ore.should eq(1)
+    game_state.bank.resources.wood.should eq(23)
+    game_state.bank.resources.ore.should eq(18)
+  end
+
+  it "uses a matching harbor to trade 2 to 1 with the bank" do
+    game_state = build_game_state(1)
+    player = game_state.current_player!
+    harbor_slot = game_state.topology.harbor_slots.values.sort_by(&.id.value).first
+
+    game_state.board.harbors = [
+      HarborAssignment.new(HarborSlotId.new("h-test"), harbor_slot.vertex_ids, HarborKind::WoodTwoToOne),
+    ]
+    game_state.board.buildings[harbor_slot.vertex_ids[0]] = Building.new(player.id, BuildingKind::Settlement)
+    player.settlements_left = 4
+    player.hand.wood = 2
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(BankTradeCompleted.new(1, player.id, Resource::Wood, Resource::Ore))
+
+    player.hand.wood.should eq(0)
+    player.hand.ore.should eq(1)
+    game_state.bank.resources.wood.should eq(21)
+    game_state.bank.resources.ore.should eq(18)
+  end
+
   it "transitions to game over when the current player reaches ten points" do
     game_state = build_game_state(1)
     player = game_state.current_player!
