@@ -91,15 +91,8 @@ module Katan::Engine::Transport::WebSocket
               end
             end
           end
-        when "start_game"
-          if payload = incoming.payload
-            lobby = @lobby_manager.get_or_create_lobby(lid)
-            if lobby.host_id == client.player_id
-              @lobby_manager.start_game(lid)
-            else
-              puts "Start game rejected: #{client.player_id} is not the host of #{lid}"
-            end
-          end
+        when "start_game", "place_settlement", "place_road", "place_city", "roll_dice", "move_robber", "end_turn", "game_action"
+          handle_gameplay_action(client, lid, incoming)
         when "ready"
           if payload = incoming.payload
             player_id = payload["player_id"]?.try(&.as_s?)
@@ -116,6 +109,90 @@ module Katan::Engine::Transport::WebSocket
         puts "JSON parse error from WS client: #{ex.message}"
       rescue ex
         puts "Error handling ws message: #{ex.message}\n#{ex.backtrace.join("\n")}"
+      end
+    end
+
+    private def handle_gameplay_action(client : Client, lobby_id : String, incoming : IncomingMessage)
+      case incoming.action
+      when "start_game"
+        lobby = @lobby_manager.get_or_create_lobby(lobby_id)
+        if lobby.host_id == client.player_id
+          @lobby_manager.start_game(lobby_id)
+        else
+          puts "Start game rejected: #{client.player_id} is not the host of #{lobby_id}"
+        end
+      when "place_settlement"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        vertex_id = payload["vertex_id"]?.try(&.as_s?)
+        free = payload["free"]?.try(&.as_bool?) || false
+        @lobby_manager.place_settlement(lobby_id, player_id, vertex_id, free) if vertex_id
+      when "place_road"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        edge_id = payload["edge_id"]?.try(&.as_s?)
+        free = payload["free"]?.try(&.as_bool?) || false
+        @lobby_manager.place_road(lobby_id, player_id, edge_id, free) if edge_id
+      when "place_city"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        vertex_id = payload["vertex_id"]?.try(&.as_s?)
+        @lobby_manager.place_city(lobby_id, player_id, vertex_id) if vertex_id
+      when "roll_dice"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        total = payload["total"]?.try(&.as_i?)
+        @lobby_manager.roll_dice(lobby_id, player_id, total.to_i32) if total
+      when "move_robber"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        tile_id = payload["tile_id"]?.try(&.as_s?)
+        @lobby_manager.move_robber(lobby_id, player_id, tile_id) if tile_id
+      when "end_turn"
+        return unless player_id = client.player_id
+
+        @lobby_manager.end_turn(lobby_id, player_id)
+      when "game_action"
+        return unless payload = incoming.payload
+
+        route_game_action(client, lobby_id, payload)
+      end
+    end
+
+    private def route_game_action(client : Client, lobby_id : String, payload : JSON::Any)
+      player_id = client.player_id
+      return unless player_id
+
+      action = payload["type"]?.try(&.as_s?)
+      return unless action
+
+      case action
+      when "place_settlement"
+        vertex_id = payload["vertex_id"]?.try(&.as_s?)
+        free = payload["free"]?.try(&.as_bool?) || false
+        @lobby_manager.place_settlement(lobby_id, player_id, vertex_id, free) if vertex_id
+      when "place_road"
+        edge_id = payload["edge_id"]?.try(&.as_s?)
+        free = payload["free"]?.try(&.as_bool?) || false
+        @lobby_manager.place_road(lobby_id, player_id, edge_id, free) if edge_id
+      when "place_city"
+        vertex_id = payload["vertex_id"]?.try(&.as_s?)
+        @lobby_manager.place_city(lobby_id, player_id, vertex_id) if vertex_id
+      when "roll_dice"
+        total = payload["total"]?.try(&.as_i?)
+        @lobby_manager.roll_dice(lobby_id, player_id, total.to_i32) if total
+      when "move_robber"
+        tile_id = payload["tile_id"]?.try(&.as_s?)
+        @lobby_manager.move_robber(lobby_id, player_id, tile_id) if tile_id
+      when "end_turn"
+        @lobby_manager.end_turn(lobby_id, player_id)
+      else
+        puts "Unknown game action: #{action}"
       end
     end
   end

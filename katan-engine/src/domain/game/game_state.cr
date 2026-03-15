@@ -38,6 +38,12 @@ class ResourceHand
     @wheat -= 1
   end
 
+  def pay_city!
+    raise "cannot afford city" unless @wheat >= 2 && @ore >= 3
+    @wheat -= 2
+    @ore -= 3
+  end
+
   def add(resource : Resource, amount : Int32 = 1)
     case resource
     when .wood?  then @wood += amount
@@ -49,6 +55,18 @@ class ResourceHand
       # desert ignored
     end
   end
+
+  def count(resource : Resource) : Int32
+    case resource
+    when .wood?  then @wood
+    when .brick? then @brick
+    when .sheep? then @sheep
+    when .wheat? then @wheat
+    when .ore?   then @ore
+    else
+      0
+    end
+  end
 end
 
 class PlayerState
@@ -58,6 +76,7 @@ class PlayerState
   property roads_left : Int32
   property settlements_left : Int32
   property cities_left : Int32
+  property knights_played : Int32
   property victory_points : Int32
 
   def initialize(@id : PlayerId, @name : String)
@@ -65,6 +84,7 @@ class PlayerState
     @roads_left = 15
     @settlements_left = 5
     @cities_left = 4
+    @knights_played = 0
     @victory_points = 0
   end
 end
@@ -86,6 +106,11 @@ class GameState
   getter player_order : Array(PlayerId)
   getter turn : TurnState
   getter settings : Hash(String, JSON::Any)
+  property longest_road_player_id : PlayerId?
+  property longest_road_length : Int32
+  property largest_army_player_id : PlayerId?
+  property largest_army_size : Int32
+  property winner_player_id : PlayerId?
   property version : Int32
 
   def initialize(
@@ -94,6 +119,11 @@ class GameState
     @settings : Hash(String, JSON::Any)
   )
     @version = 0
+    @longest_road_player_id = nil
+    @longest_road_length = 0
+    @largest_army_player_id = nil
+    @largest_army_size = 0
+    @winner_player_id = nil
     @bank = Bank.new
     rng = Random.new
     @player_order = @players.keys.shuffle(random: rng)

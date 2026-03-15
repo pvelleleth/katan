@@ -44,6 +44,14 @@ class Bank
     @knight + @victory_point + @road_building + @year_of_plenty + @monopoly
   end
 
+  def withdraw!(resource : Resource, amount : Int32 = 1) : Nil
+    @resources.remove(resource, amount)
+  end
+
+  def deposit!(resource : Resource, amount : Int32 = 1) : Nil
+    @resources.add(resource, amount)
+  end
+
   def to_json_payload
     {
       resources: {

@@ -46,6 +46,12 @@ module Katan::Engine::Infrastructure::Persistence
       FROM target_game, next_sequence
     SQL
 
+    SAVE_SNAPSHOT_SQL = <<-SQL
+      UPDATE game
+      SET snapshot = $2::jsonb, snapshot_version = $3
+      WHERE short_code = $1
+    SQL
+
     def initialize(database_url : String)
       @db = DB.open(database_url)
     end
@@ -75,6 +81,11 @@ module Katan::Engine::Infrastructure::Persistence
         message
       )
 
+      raise "No game found for lobby #{lobby_code}" if result.rows_affected.zero?
+    end
+
+    def save_game_snapshot(lobby_code : String, snapshot_json : String, snapshot_version : Int32) : Nil
+      result = @db.exec(SAVE_SNAPSHOT_SQL, lobby_code, snapshot_json, snapshot_version)
       raise "No game found for lobby #{lobby_code}" if result.rows_affected.zero?
     end
   end

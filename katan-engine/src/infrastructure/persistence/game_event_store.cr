@@ -13,6 +13,8 @@ module Katan::Engine::Infrastructure::Persistence
       payload_json : String = "{}",
       message : String? = nil
     ) : Nil
+
+    abstract def save_game_snapshot(lobby_code : String, snapshot_json : String, snapshot_version : Int32) : Nil
   end
 
   class NullGameEventStore < GameEventStore
@@ -28,6 +30,9 @@ module Katan::Engine::Infrastructure::Persistence
       payload_json : String = "{}",
       message : String? = nil
     ) : Nil
+    end
+
+    def save_game_snapshot(lobby_code : String, snapshot_json : String, snapshot_version : Int32) : Nil
     end
   end
 end

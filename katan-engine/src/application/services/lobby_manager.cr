@@ -10,6 +10,7 @@ module Katan::Engine::Application
 
     property lobbies = Hash(String, Domain::Lobby).new
     property clients = Hash(String, Array(Transport::WebSocket::Client)).new
+    property games = Hash(String, GameState).new
 
     def initialize(@game_event_store : Infrastructure::Persistence::GameEventStore = Infrastructure::Persistence::NullGameEventStore.new)
     end
@@ -151,80 +152,95 @@ module Katan::Engine::Application
 
     def start_game(lobby_id : String)
       lobby = get_or_create_lobby(lobby_id)
-      game_state = GameState.new(
-        topology: BoardTopology.standard,
-        players: lobby.players.map { |player|
-          player_id = PlayerId.new(player.id)
-          {player_id, PlayerState.new(player_id, player.name)}
-        }.to_h,
-        settings: lobby.settings
+      game_state = build_game_state(lobby)
+      @games[lobby_id] = game_state
+
+      game_started = GameStarted.new(next_version(game_state))
+      game_state.apply!(game_started)
+
+      @game_event_store.append(
+        lobby_code: lobby_id,
+        event_type: "game_started",
+        turn_number: game_state.turn.number,
+        phase: game_state.turn.phase.to_s,
+        payload_json: serialize_game_state(game_state, include_all_hands: true).to_json,
+        message: "Game started."
       )
-      payload_json = {
-        version: game_state.version,
-        turn: {
-          current_player_id: game_state.turn.current_player_id.value,
-          number: game_state.turn.number,
-          phase: game_state.turn.phase.to_s,
-        },
-        players: lobby.players.map { |player|
-          {
-            id: player.id,
-            name: player.name,
-          }
-        },
-        bank: game_state.bank.to_json_payload,
-        board: {
-          tiles: game_state.topology.tiles.values.map { |t|
-            {
-              id: t.id.value,
-              x: t.x,
-              y: t.y,
-              resource: game_state.board.tile_states[t.id].resource.to_s,
-              token: game_state.board.tile_states[t.id].token,
-              has_robber: game_state.board.robber_tile_id == t.id
-            }
-          },
-          vertices: game_state.topology.vertices.values.map { |v|
-            building = game_state.board.building_at?(v.id)
-            {
-              id: v.id.value,
-              x: v.x,
-              y: v.y,
-              building: building ? {
-                player_id: building.player_id.value,
-                kind: building.kind.to_s
-              } : nil
-            }
-          },
-          edges: game_state.topology.edges.values.map { |e|
-            road = game_state.board.road_at?(e.id)
-            {
-              id: e.id.value,
-              v1: e.vertex_ids[0].value,
-              v2: e.vertex_ids[1].value,
-              road: road ? {
-                player_id: road.player_id.value
-              } : nil
-            }
-          }
-        },
-        settings: lobby.settings,
-      }.to_json
-      @game_event_store.append(lobby_id, "game_started", nil, nil, nil, payload_json, "Game started.")
-      
-      if list = @clients[lobby_id]?
-        state_json = {
-          type: "game_started",
-          game_state: JSON.parse(payload_json)
-        }.to_json
-        list.each do |client|
-          client.send_json(state_json)
-        end
-      end
-      
+
+      broadcast_game_state(lobby_id, "game_started")
       broadcast_lobby_state(lobby_id)
     rescue ex
       puts "Failed to start game for #{lobby_id}: #{ex.message}"
+    end
+
+    def place_settlement(lobby_id : String, player_id : String, vertex_id : String, free : Bool = false)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = SettlementPlaced.new(next_version(game_state), PlayerId.new(player_id), VertexId.new(vertex_id), free)
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "settlement_placed", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} placed a settlement.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to place settlement for #{lobby_id}: #{ex.message}"
+    end
+
+    def place_road(lobby_id : String, player_id : String, edge_id : String, free : Bool = false)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = RoadPlaced.new(next_version(game_state), PlayerId.new(player_id), EdgeId.new(edge_id), free)
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "road_placed", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} placed a road.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to place road for #{lobby_id}: #{ex.message}"
+    end
+
+    def place_city(lobby_id : String, player_id : String, vertex_id : String)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = CityPlaced.new(next_version(game_state), PlayerId.new(player_id), VertexId.new(vertex_id))
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "city_placed", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} upgraded a settlement to a city.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to place city for #{lobby_id}: #{ex.message}"
+    end
+
+    def roll_dice(lobby_id : String, player_id : String, total : Int32)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      actor = PlayerId.new(player_id)
+      raise "wrong player rolled dice" unless game_state.turn.current_player_id == actor
+
+      event = DiceRolled.new(next_version(game_state), total)
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "dice_rolled", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(actor).name} rolled #{total}.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to roll dice for #{lobby_id}: #{ex.message}"
+    end
+
+    def move_robber(lobby_id : String, player_id : String, tile_id : String)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = RobberMoved.new(next_version(game_state), PlayerId.new(player_id), TileId.new(tile_id))
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "robber_moved", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} moved the robber.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to move robber for #{lobby_id}: #{ex.message}"
+    end
+
+    def end_turn(lobby_id : String, player_id : String)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = TurnEnded.new(next_version(game_state), PlayerId.new(player_id))
+      actor_name = game_state.player!(event.player_id).name
+
+      game_state.apply!(event)
+      persist_game_event(lobby_id, game_state, "turn_ended", player_id, serialize_event_payload(event).to_json, "#{actor_name} ended their turn.")
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to end turn for #{lobby_id}: #{ex.message}"
     end
 
     private def remove_existing_clients(lobby_id : String, player_id : String, current_client : Transport::WebSocket::Client)
@@ -266,8 +282,186 @@ module Katan::Engine::Application
     private def cleanup_lobby(lobby_id : String, lobby : Domain::Lobby)
       return unless lobby.players.empty?
 
+      @games.delete(lobby_id)
       @lobbies.delete(lobby_id)
       @clients.delete(lobby_id)
+    end
+
+    private def build_game_state(lobby : Domain::Lobby) : GameState
+      GameState.new(
+        topology: BoardTopology.standard,
+        players: lobby.players.map { |player|
+          player_id = PlayerId.new(player.id)
+          {player_id, PlayerState.new(player_id, player.name)}
+        }.to_h,
+        settings: lobby.settings
+      )
+    end
+
+    private def broadcast_game_state(lobby_id : String, message_type : String = "game_update")
+      return unless game_state = @games[lobby_id]?
+      return unless list = @clients[lobby_id]?
+
+      list.each do |client|
+        client.send_json(
+          {
+            type: message_type,
+            game_state: serialize_game_state(game_state, client.player_id)
+          }.to_json
+        )
+      end
+
+      save_game_snapshot(lobby_id, game_state)
+    end
+
+    private def serialize_game_state(game_state : GameState, viewer_player_id : String? = nil, include_all_hands : Bool = false)
+      {
+        version: game_state.version,
+        player_order: game_state.player_order.map(&.value),
+        turn: {
+          current_player_id: game_state.turn.current_player_id.value,
+          number: game_state.turn.number,
+          phase: game_state.turn.phase.to_s,
+        },
+        players: game_state.player_order.map { |player_id|
+          player = game_state.player!(player_id)
+          {
+            id: player.id.value,
+            name: player.name,
+            victory_points: player.victory_points,
+            roads_left: player.roads_left,
+            settlements_left: player.settlements_left,
+            cities_left: player.cities_left,
+            knights_played: player.knights_played,
+            has_longest_road: game_state.longest_road_player_id == player.id,
+            has_largest_army: game_state.largest_army_player_id == player.id,
+            resource_count: total_resources(player.hand),
+            hand: include_all_hands || player.id.value == viewer_player_id ? {
+              wood: player.hand.wood,
+              brick: player.hand.brick,
+              sheep: player.hand.sheep,
+              wheat: player.hand.wheat,
+              ore: player.hand.ore,
+            } : nil,
+          }
+        },
+        bank: game_state.bank.to_json_payload,
+        board: {
+          tiles: game_state.topology.tiles.values.sort_by(&.id.value).map { |tile|
+            tile_state = game_state.board.tile_states[tile.id]
+            {
+              id: tile.id.value,
+              x: tile.x,
+              y: tile.y,
+              resource: tile_state.resource.to_s,
+              token: tile_state.token,
+              has_robber: game_state.board.robber_tile_id == tile.id
+            }
+          },
+          vertices: game_state.topology.vertices.values.sort_by(&.id.value).map { |vertex|
+            building = game_state.board.building_at?(vertex.id)
+            {
+              id: vertex.id.value,
+              x: vertex.x,
+              y: vertex.y,
+              building: building ? {
+                player_id: building.player_id.value,
+                kind: building.kind.to_s
+              } : nil
+            }
+          },
+          edges: game_state.topology.edges.values.sort_by(&.id.value).map { |edge|
+            road = game_state.board.road_at?(edge.id)
+            {
+              id: edge.id.value,
+              v1: edge.vertex_ids[0].value,
+              v2: edge.vertex_ids[1].value,
+              road: road ? {
+                player_id: road.player_id.value
+              } : nil
+            }
+          }
+        },
+        awards: {
+          longest_road: game_state.longest_road_player_id ? {
+            player_id: game_state.longest_road_player_id.not_nil!.value,
+            length: game_state.longest_road_length,
+          } : nil,
+          largest_army: game_state.largest_army_player_id ? {
+            player_id: game_state.largest_army_player_id.not_nil!.value,
+            size: game_state.largest_army_size,
+          } : nil,
+        },
+        winner_player_id: game_state.winner_player_id.try(&.value),
+        settings: game_state.settings,
+      }
+    end
+
+    private def serialize_event_payload(event : GameEvent)
+      case event
+      when SettlementPlaced
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          vertex_id: event.vertex_id.value,
+          free: event.free,
+        }
+      when RoadPlaced
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          edge_id: event.edge_id.value,
+          free: event.free,
+        }
+      when CityPlaced
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          vertex_id: event.vertex_id.value,
+        }
+      when DiceRolled
+        {
+          version: event.version,
+          total: event.total,
+        }
+      when RobberMoved
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          tile_id: event.tile_id.value,
+        }
+      when TurnEnded
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+        }
+      when GameStarted
+        {
+          version: event.version,
+        }
+      else
+        raise "unknown game event #{event.class}"
+      end
+    end
+
+    private def persist_game_event(lobby_id : String, game_state : GameState, event_type : String, actor_player_id : String?, payload_json : String, message : String)
+      @game_event_store.append(
+        lobby_code: lobby_id,
+        event_type: event_type,
+        actor_player_id: actor_player_id,
+        turn_number: game_state.turn.number,
+        phase: game_state.turn.phase.to_s,
+        payload_json: payload_json,
+        message: message
+      )
+    end
+
+    private def next_version(game_state : GameState) : Int32
+      game_state.version + 1
+    end
+
+    private def total_resources(hand : ResourceHand) : Int32
+      hand.wood + hand.brick + hand.sheep + hand.wheat + hand.ore
     end
 
     private def log_event(lobby_id : String, event_type : String, actor_player_id : String?, payload_json : String, message : String)
@@ -280,6 +474,13 @@ module Katan::Engine::Application
       )
     rescue ex
       puts "Failed to persist game event #{event_type} for #{lobby_id}: #{ex.message}"
+    end
+
+    private def save_game_snapshot(lobby_id : String, game_state : GameState)
+      snapshot = serialize_game_state(game_state, include_all_hands: true)
+      @game_event_store.save_game_snapshot(lobby_id, snapshot.to_json, game_state.version)
+    rescue ex
+      puts "Failed to save game snapshot for #{lobby_id}: #{ex.message}"
     end
   end
 end

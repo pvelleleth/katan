@@ -30,6 +30,15 @@ class RoadPlaced < GameEvent
   end
 end
 
+class CityPlaced < GameEvent
+  getter player_id : PlayerId
+  getter vertex_id : VertexId
+
+  def initialize(@version : Int32, @player_id : PlayerId, @vertex_id : VertexId)
+    super(@version)
+  end
+end
+
 class DiceRolled < GameEvent
   getter total : Int32
 
