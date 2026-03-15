@@ -5,6 +5,16 @@ require "json"
 require "time"
 
 module Katan::Engine::Application
+  abstract class DiceRoller
+    abstract def roll : DiceRoll
+  end
+
+  class RandomDiceRoller < DiceRoller
+    def roll : DiceRoll
+      DiceRoll.new(Random.rand(1..6).to_i32, Random.rand(1..6).to_i32)
+    end
+  end
+
   class LobbyManager
     DISCONNECT_GRACE_PERIOD = 60.seconds
 
@@ -12,7 +22,10 @@ module Katan::Engine::Application
     property clients = Hash(String, Array(Transport::WebSocket::Client)).new
     property games = Hash(String, GameState).new
 
-    def initialize(@game_event_store : Infrastructure::Persistence::GameEventStore = Infrastructure::Persistence::NullGameEventStore.new)
+    def initialize(
+      @game_event_store : Infrastructure::Persistence::GameEventStore = Infrastructure::Persistence::NullGameEventStore.new,
+      @dice_roller : DiceRoller = RandomDiceRoller.new
+    )
     end
 
     def get_or_create_lobby(id : String) : Domain::Lobby
@@ -206,15 +219,16 @@ module Katan::Engine::Application
       puts "Failed to place city for #{lobby_id}: #{ex.message}"
     end
 
-    def roll_dice(lobby_id : String, player_id : String, total : Int32)
+    def roll_dice(lobby_id : String, player_id : String)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       actor = PlayerId.new(player_id)
       raise "wrong player rolled dice" unless game_state.turn.current_player_id == actor
 
-      event = DiceRolled.new(next_version(game_state), total)
+      roll = @dice_roller.roll
+      event = DiceRolled.new(next_version(game_state), roll.die_one, roll.die_two)
 
       game_state.apply!(event)
-      persist_game_event(lobby_id, game_state, "dice_rolled", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(actor).name} rolled #{total}.")
+      persist_game_event(lobby_id, game_state, "dice_rolled", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(actor).name} rolled #{event.total}.")
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to roll dice for #{lobby_id}: #{ex.message}"
@@ -323,6 +337,11 @@ module Katan::Engine::Application
           number: game_state.turn.number,
           phase: game_state.turn.phase.to_s,
         },
+        last_roll: game_state.last_roll ? {
+          die_one: game_state.last_roll.not_nil!.die_one,
+          die_two: game_state.last_roll.not_nil!.die_two,
+          total: game_state.last_roll.not_nil!.total,
+        } : nil,
         players: game_state.player_order.map { |player_id|
           player = game_state.player!(player_id)
           {
@@ -422,6 +441,8 @@ module Katan::Engine::Application
       when DiceRolled
         {
           version: event.version,
+          die_one: event.die_one,
+          die_two: event.die_two,
           total: event.total,
         }
       when RobberMoved

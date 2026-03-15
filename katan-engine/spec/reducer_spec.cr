@@ -118,12 +118,18 @@ describe GameState do
 
     game_state.turn.phase = TurnPhase::Roll
     game_state.board.buildings[vertex_id] = Building.new(game_state.turn.current_player_id, BuildingKind::Settlement)
-    game_state.apply!(DiceRolled.new(2, tile_state.token.not_nil!))
+    token = tile_state.token.not_nil!
+    die_one = token > 6 ? 6 : 1
+    die_two = token - die_one
+    game_state.apply!(DiceRolled.new(2, die_one, die_two))
 
     player = game_state.current_player!
     player.hand.count(tile_state.resource).should eq(1)
     game_state.bank.resources.count(tile_state.resource).should eq(18)
     game_state.turn.phase.should eq(TurnPhase::Main)
+    game_state.last_roll.not_nil!.die_one.should eq(die_one)
+    game_state.last_roll.not_nil!.die_two.should eq(die_two)
+    game_state.last_roll.not_nil!.total.should eq(token)
   end
 
   it "upgrades a settlement to a city and doubles future production" do
@@ -147,7 +153,10 @@ describe GameState do
 
     before_roll = player.hand.count(tile_state.resource)
     game_state.turn.phase = TurnPhase::Roll
-    game_state.apply!(DiceRolled.new(2, tile_state.token.not_nil!))
+    token = tile_state.token.not_nil!
+    die_one = token > 6 ? 6 : 1
+    die_two = token - die_one
+    game_state.apply!(DiceRolled.new(2, die_one, die_two))
     player.hand.count(tile_state.resource).should eq(before_roll + 2)
   end
 
@@ -277,7 +286,7 @@ describe GameState do
     game_state.player!(player_one).knights_played = 3
     game_state.turn.current_player_id = player_one
     game_state.turn.phase = TurnPhase::Roll
-    game_state.apply!(DiceRolled.new(game_state.version + 1, 2))
+    game_state.apply!(DiceRolled.new(game_state.version + 1, 1, 1))
 
     game_state.largest_army_player_id.should eq(player_one)
     game_state.largest_army_size.should eq(3)
@@ -286,14 +295,14 @@ describe GameState do
     game_state.player!(player_two).knights_played = 3
     game_state.turn.current_player_id = player_two
     game_state.turn.phase = TurnPhase::Roll
-    game_state.apply!(DiceRolled.new(game_state.version + 1, 3))
+    game_state.apply!(DiceRolled.new(game_state.version + 1, 1, 2))
 
     game_state.largest_army_player_id.should eq(player_one)
 
     game_state.player!(player_two).knights_played = 4
     game_state.turn.current_player_id = player_two
     game_state.turn.phase = TurnPhase::Roll
-    game_state.apply!(DiceRolled.new(game_state.version + 1, 4))
+    game_state.apply!(DiceRolled.new(game_state.version + 1, 1, 3))
 
     game_state.largest_army_player_id.should eq(player_two)
     game_state.largest_army_size.should eq(4)

@@ -142,11 +142,9 @@ module Katan::Engine::Transport::WebSocket
         vertex_id = payload["vertex_id"]?.try(&.as_s?)
         @lobby_manager.place_city(lobby_id, player_id, vertex_id) if vertex_id
       when "roll_dice"
-        return unless payload = incoming.payload
         return unless player_id = client.player_id
 
-        total = payload["total"]?.try(&.as_i?)
-        @lobby_manager.roll_dice(lobby_id, player_id, total.to_i32) if total
+        @lobby_manager.roll_dice(lobby_id, player_id)
       when "move_robber"
         return unless payload = incoming.payload
         return unless player_id = client.player_id
@@ -184,8 +182,7 @@ module Katan::Engine::Transport::WebSocket
         vertex_id = payload["vertex_id"]?.try(&.as_s?)
         @lobby_manager.place_city(lobby_id, player_id, vertex_id) if vertex_id
       when "roll_dice"
-        total = payload["total"]?.try(&.as_i?)
-        @lobby_manager.roll_dice(lobby_id, player_id, total.to_i32) if total
+        @lobby_manager.roll_dice(lobby_id, player_id)
       when "move_robber"
         tile_id = payload["tile_id"]?.try(&.as_s?)
         @lobby_manager.move_robber(lobby_id, player_id, tile_id) if tile_id

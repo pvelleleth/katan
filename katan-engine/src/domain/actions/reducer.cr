@@ -93,6 +93,7 @@ class GameState
 
   private def apply_dice_rolled!(event : DiceRolled) : Nil
     validate_dice_roll!(event)
+    @last_roll = DiceRoll.new(event.die_one, event.die_two)
     distribute_resources!(event.total) unless event.total == 7
     @turn.phase = event.total == 7 ? TurnPhase::MoveRobber : TurnPhase::Main
   end
@@ -357,6 +358,7 @@ class GameState
 
   private def validate_dice_roll!(event : DiceRolled) : Nil
     raise "can only roll dice during the roll phase" unless @turn.phase.roll?
+    raise "dice values must be between 1 and 6" unless (1..6).includes?(event.die_one) && (1..6).includes?(event.die_two)
     raise "dice total must be between 2 and 12" unless (2..12).includes?(event.total)
   end
 

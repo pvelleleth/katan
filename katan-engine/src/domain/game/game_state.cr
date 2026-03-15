@@ -98,6 +98,16 @@ class TurnState
   end
 end
 
+struct DiceRoll
+  getter die_one : Int32
+  getter die_two : Int32
+  getter total : Int32
+
+  def initialize(@die_one : Int32, @die_two : Int32)
+    @total = @die_one + @die_two
+  end
+end
+
 class GameState
   getter topology : BoardTopology
   getter board : BoardState
@@ -106,6 +116,7 @@ class GameState
   getter player_order : Array(PlayerId)
   getter turn : TurnState
   getter settings : Hash(String, JSON::Any)
+  property last_roll : DiceRoll?
   property longest_road_player_id : PlayerId?
   property longest_road_length : Int32
   property largest_army_player_id : PlayerId?
@@ -119,6 +130,7 @@ class GameState
     @settings : Hash(String, JSON::Any)
   )
     @version = 0
+    @last_roll = nil
     @longest_road_player_id = nil
     @longest_road_length = 0
     @largest_army_player_id = nil

@@ -40,10 +40,13 @@ class CityPlaced < GameEvent
 end
 
 class DiceRolled < GameEvent
+  getter die_one : Int32
+  getter die_two : Int32
   getter total : Int32
 
-  def initialize(@version : Int32, @total : Int32)
+  def initialize(@version : Int32, @die_one : Int32, @die_two : Int32)
     super(@version)
+    @total = @die_one + @die_two
   end
 end
 
