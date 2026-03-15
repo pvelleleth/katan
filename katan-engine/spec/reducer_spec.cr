@@ -447,6 +447,28 @@ describe GameState do
     end
   end
 
+  it "allows playing a knight before rolling and returns to the roll phase after robber resolution" do
+    game_state = build_game_state(2)
+    player = game_state.current_player!
+    opponent_player_id = (game_state.player_order - [player.id]).first
+    target_tile_id = game_state.topology.tiles.keys.find { |tile_id| tile_id != game_state.board.robber_tile_id }.not_nil!
+
+    opponent_vertex_id = game_state.topology.tiles[target_tile_id].vertex_ids.first
+    game_state.board.buildings[opponent_vertex_id] = Building.new(opponent_player_id, BuildingKind::Settlement)
+    game_state.player!(opponent_player_id).hand.sheep = 1
+    player.dev_cards.knight = 1
+    game_state.turn.phase = TurnPhase::Roll
+
+    game_state.apply!(KnightPlayed.new(1, player.id, target_tile_id))
+
+    game_state.turn.phase.should eq(TurnPhase::StealResource)
+
+    game_state.apply!(RobberStolen.new(2, player.id, opponent_player_id, Resource::Sheep))
+
+    game_state.turn.phase.should eq(TurnPhase::Roll)
+    game_state.player!(player.id).hand.sheep.should eq(1)
+  end
+
   it "plays road building to place two free roads" do
     game_state = build_game_state(1)
     player = game_state.current_player!

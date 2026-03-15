@@ -205,6 +205,7 @@ class GameState
   property winner_player_id : PlayerId?
   property pending_robber_discards : Hash(PlayerId, Int32)
   property robber_eligible_victim_ids : Array(PlayerId)
+  property robber_return_phase : TurnPhase?
   property pending_player_trade : PendingPlayerTrade?
   property version : Int32
 
@@ -223,6 +224,7 @@ class GameState
     @winner_player_id = nil
     @pending_robber_discards = {} of PlayerId => Int32
     @robber_eligible_victim_ids = [] of PlayerId
+    @robber_return_phase = nil
     @pending_player_trade = nil
     @bank = Bank.new
     @player_order = @players.keys.shuffle(random: @rng)

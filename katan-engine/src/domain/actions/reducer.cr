@@ -130,12 +130,13 @@ class GameState
   private def apply_knight_played!(event : KnightPlayed) : Nil
     validate_knight_play!(event)
     player = player!(event.player_id)
+    return_phase = @turn.phase.roll? ? TurnPhase::Roll : TurnPhase::Main
 
     player.dev_cards.remove(DevCard::Knight)
     player.knights_played += 1
     @board.robber_tile_id = event.tile_id
     @turn.dev_card_played_this_turn = true
-    advance_robber_after_move!(event.player_id, event.tile_id)
+    advance_robber_after_move!(event.player_id, event.tile_id, return_phase)
   end
 
   private def apply_road_building_played!(event : RoadBuildingPlayed) : Nil
@@ -219,6 +220,7 @@ class GameState
   private def apply_dice_rolled!(event : DiceRolled) : Nil
     validate_dice_roll!(event)
     @last_roll = DiceRoll.new(event.die_one, event.die_two)
+    @robber_return_phase = nil
     if event.total == 7
       @pending_robber_discards = players_requiring_robber_discard
       @robber_eligible_victim_ids.clear
@@ -245,7 +247,7 @@ class GameState
   private def apply_robber_moved!(event : RobberMoved) : Nil
     validate_robber_move!(event)
     @board.robber_tile_id = event.tile_id
-    advance_robber_after_move!(event.player_id, event.tile_id)
+    advance_robber_after_move!(event.player_id, event.tile_id, TurnPhase::Main)
   end
 
   private def apply_robber_stolen!(event : RobberStolen) : Nil
@@ -256,7 +258,8 @@ class GameState
     victim.hand.remove(event.resource)
     player.hand.add(event.resource)
     @robber_eligible_victim_ids.clear
-    @turn.phase = TurnPhase::Main
+    @turn.phase = @robber_return_phase || TurnPhase::Main
+    @robber_return_phase = nil
   end
 
   private def apply_turn_ended!(event : TurnEnded) : Nil
@@ -265,6 +268,7 @@ class GameState
     @turn.dev_card_played_this_turn = false
     @pending_robber_discards.clear
     @robber_eligible_victim_ids.clear
+    @robber_return_phase = nil
     @pending_player_trade = nil
 
     idx = @player_order.index(@turn.current_player_id) || raise "current player missing"
@@ -685,9 +689,10 @@ class GameState
     end
   end
 
-  private def advance_robber_after_move!(player_id : PlayerId, tile_id : TileId) : Nil
+  private def advance_robber_after_move!(player_id : PlayerId, tile_id : TileId, return_phase : TurnPhase) : Nil
     @robber_eligible_victim_ids = robber_eligible_victims(player_id, tile_id)
-    @turn.phase = @robber_eligible_victim_ids.empty? ? TurnPhase::Main : TurnPhase::StealResource
+    @robber_return_phase = @robber_eligible_victim_ids.empty? ? nil : return_phase
+    @turn.phase = @robber_eligible_victim_ids.empty? ? return_phase : TurnPhase::StealResource
   end
 
   private def robber_eligible_victims(player_id : PlayerId, tile_id : TileId) : Array(PlayerId)
@@ -701,7 +706,7 @@ class GameState
 
   private def validate_dev_card_play!(player_id : PlayerId, card : DevCard) : Nil
     raise "wrong player played development card" unless player_id == @turn.current_player_id
-    raise "can only play development cards during the main phase" unless @turn.phase.main?
+    raise "can only play development cards during the roll or main phase" unless @turn.phase.roll? || @turn.phase.main?
     raise "can only play one development card per turn" if @turn.dev_card_played_this_turn
 
     player = player!(player_id)
