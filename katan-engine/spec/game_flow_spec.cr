@@ -82,9 +82,18 @@ describe Katan::Engine::Application::LobbyManager do
     robber_target = game_state.topology.tiles.keys.sort_by(&.value).find do |tile_id|
       tile_id != game_state.board.robber_tile_id
     end.not_nil!.value
+    robber_vertex_id = game_state.topology.tiles[TileId.new(robber_target)].vertex_ids.first
+    game_state.board.buildings[robber_vertex_id] = Building.new(PlayerId.new(second_player), BuildingKind::Settlement)
+    victim_hand = game_state.player!(PlayerId.new(second_player)).hand
+    victim_hand.wood = 1
+    victim_hand.brick = 0
+    victim_hand.sheep = 0
+    victim_hand.wheat = 0
+    victim_hand.ore = 0
 
     manager.roll_dice("ABC123", first_player)
     manager.move_robber("ABC123", first_player, robber_target)
+    manager.robber_steal("ABC123", first_player, second_player)
     manager.end_turn("ABC123", first_player)
 
     store.events.map(&.[:event_type]).should eq([
@@ -100,16 +109,18 @@ describe Katan::Engine::Application::LobbyManager do
       "city_placed",
       "dice_rolled",
       "robber_moved",
+      "robber_stolen",
       "turn_ended",
     ])
 
     final_state = manager.games["ABC123"]
-    final_state.version.should eq(13)
+    final_state.version.should eq(14)
     final_state.turn.current_player_id.value.should eq(second_player)
     final_state.turn.phase.should eq(TurnPhase::Roll)
     final_state.last_roll.not_nil!.die_one.should eq(3)
     final_state.last_roll.not_nil!.die_two.should eq(4)
     final_state.last_roll.not_nil!.total.should eq(7)
+    final_state.player!(PlayerId.new(second_player)).hand.wood.should eq(0)
   end
 
   it "persists full hands in game_started payloads and saved snapshots" do
@@ -181,5 +192,44 @@ describe Katan::Engine::Application::LobbyManager do
       snapshot_hand["wheat"].as_i.should eq(player.hand.wheat)
       snapshot_hand["ore"].as_i.should eq(player.hand.ore)
     end
+  end
+
+  it "persists robber discards and exposes pending discard state" do
+    store = RecordingGameEventStore.new
+    manager = Katan::Engine::Application::LobbyManager.new(store, FixedDiceRoller.new([DiceRoll.new(3, 4)]))
+    first_client = Katan::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    first_client.lobby_id = "GHI789"
+    second_client = Katan::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    second_client.lobby_id = "GHI789"
+
+    manager.handle_join("GHI789", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("GHI789", "player-2", "Bob", second_client)
+
+    manager.start_game("GHI789")
+    complete_setup_through_manager!(manager, "GHI789")
+
+    game_state = manager.games["GHI789"]
+    current_player_id = game_state.turn.current_player_id.value
+    other_player_id = (game_state.player_order - [game_state.turn.current_player_id]).first.value
+    other_hand = game_state.player!(PlayerId.new(other_player_id)).hand
+    other_hand.wood = 4
+    other_hand.brick = 2
+    other_hand.sheep = 2
+    other_hand.wheat = 0
+    other_hand.ore = 0
+
+    manager.roll_dice("GHI789", current_player_id)
+
+    rolled_snapshot = JSON.parse(store.snapshots.last[:snapshot_json])
+    pending_discards = rolled_snapshot["turn"]["pending_robber_discards"].as_a
+    pending_discards.size.should eq(1)
+    pending_discards.first["player_id"].as_s.should eq(other_player_id)
+    pending_discards.first["count"].as_i.should eq(4)
+
+    manager.discard_robber("GHI789", other_player_id, ResourcePile.new(4, 0, 0, 0, 0))
+
+    store.events.map(&.[:event_type]).last.should eq("robber_discarded")
+    game_state.turn.phase.should eq(TurnPhase::MoveRobber)
+    game_state.player!(PlayerId.new(other_player_id)).hand.total.should eq(4)
   end
 end

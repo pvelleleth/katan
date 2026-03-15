@@ -38,6 +38,17 @@ private def place_roads_in_main!(game_state : GameState, player_id : PlayerId, e
   end
 end
 
+private def robber_target_with_victim(game_state : GameState) : NamedTuple(tile_id: TileId, vertex_id: VertexId)
+  game_state.topology.tiles.keys.sort_by(&.value).each do |tile_id|
+    next if tile_id == game_state.board.robber_tile_id
+
+    vertex_id = game_state.topology.tiles[tile_id].vertex_ids.first
+    return {tile_id: tile_id, vertex_id: vertex_id}
+  end
+
+  raise "no robber target tile available"
+end
+
 describe GameState do
   it "advances through the snake-order setup flow" do
     game_state = build_game_state
@@ -130,6 +141,59 @@ describe GameState do
     game_state.last_roll.not_nil!.die_one.should eq(die_one)
     game_state.last_roll.not_nil!.die_two.should eq(die_two)
     game_state.last_roll.not_nil!.total.should eq(token)
+  end
+
+  it "requires robber discards before allowing the robber to move" do
+    game_state = build_game_state(3)
+    current_player = game_state.turn.current_player_id
+    discarding_player = (game_state.player_order - [current_player]).first
+    discarding_hand = game_state.player!(discarding_player).hand
+    discarding_hand.wood = 4
+    discarding_hand.brick = 2
+    discarding_hand.sheep = 2
+    game_state.turn.phase = TurnPhase::Roll
+
+    game_state.apply!(DiceRolled.new(1, 3, 4))
+
+    game_state.turn.phase.should eq(TurnPhase::DiscardResources)
+    game_state.pending_robber_discards[discarding_player].should eq(4)
+
+    expect_raises(Exception, "can only move robber after rolling a 7") do
+      target_tile_id = game_state.topology.tiles.keys.find { |tile_id| tile_id != game_state.board.robber_tile_id }.not_nil!
+      game_state.apply!(RobberMoved.new(2, current_player, target_tile_id))
+    end
+
+    game_state.apply!(RobberDiscarded.new(2, discarding_player, ResourcePile.new(4, 0, 0, 0, 0)))
+
+    discarding_hand.total.should eq(4)
+    game_state.pending_robber_discards.empty?.should be_true
+    game_state.turn.phase.should eq(TurnPhase::MoveRobber)
+  end
+
+  it "moves the robber, exposes eligible victims, and steals a random card" do
+    game_state = build_game_state
+    current_player = game_state.turn.current_player_id
+    victim_player = (game_state.player_order - [current_player]).first
+    target = robber_target_with_victim(game_state)
+    victim = game_state.player!(victim_player)
+
+    game_state.board.buildings[target[:vertex_id]] = Building.new(victim_player, BuildingKind::Settlement)
+    victim.hand.brick = 3
+    game_state.turn.phase = TurnPhase::Roll
+
+    game_state.apply!(DiceRolled.new(1, 3, 4))
+    game_state.apply!(RobberMoved.new(2, current_player, target[:tile_id]))
+
+    game_state.board.robber_tile_id.should eq(target[:tile_id])
+    game_state.turn.phase.should eq(TurnPhase::StealResource)
+    game_state.robber_eligible_victim_ids.should eq([victim_player])
+
+    game_state.apply!(RobberStolen.new(3, current_player, victim_player, Resource::Brick))
+
+    game_state.player!(current_player).hand.brick.should eq(1)
+    victim.hand.brick.should eq(2)
+    game_state.robber_eligible_victim_ids.should be_empty
+    game_state.turn.phase.should eq(TurnPhase::Main)
   end
 
   it "upgrades a settlement to a city and doubles future production" do
@@ -357,10 +421,14 @@ describe GameState do
   end
 
   it "plays a knight to move the robber and enforces one development card play per turn" do
-    game_state = build_game_state(1)
+    game_state = build_game_state(2)
     player = game_state.current_player!
+    opponent_player_id = (game_state.player_order - [player.id]).first
     target_tile_id = game_state.topology.tiles.keys.find { |tile_id| tile_id != game_state.board.robber_tile_id }.not_nil!
 
+    opponent_vertex_id = game_state.topology.tiles[target_tile_id].vertex_ids.first
+    game_state.board.buildings[opponent_vertex_id] = Building.new(opponent_player_id, BuildingKind::Settlement)
+    game_state.player!(opponent_player_id).hand.sheep = 1
     player.dev_cards.knight = 1
     player.dev_cards.monopoly = 1
     game_state.turn.phase = TurnPhase::Main
@@ -370,9 +438,12 @@ describe GameState do
     game_state.board.robber_tile_id.should eq(target_tile_id)
     player.dev_cards.knight.should eq(0)
     player.knights_played.should eq(1)
+    game_state.turn.phase.should eq(TurnPhase::StealResource)
+
+    game_state.apply!(RobberStolen.new(2, player.id, opponent_player_id, Resource::Sheep))
 
     expect_raises(Exception, "can only play one development card per turn") do
-      game_state.apply!(MonopolyPlayed.new(2, player.id, Resource::Wood))
+      game_state.apply!(MonopolyPlayed.new(3, player.id, Resource::Wood))
     end
   end
 

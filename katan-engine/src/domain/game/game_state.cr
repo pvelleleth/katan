@@ -9,8 +9,10 @@ enum TurnPhase
   Setup2Settlement
   Setup2Road
   Roll
+  DiscardResources
   Main
   MoveRobber
+  StealResource
   GameOver
 end
 
@@ -90,6 +92,10 @@ class ResourceHand
       count(Resource::Sheep) >= pile.sheep &&
       count(Resource::Wheat) >= pile.wheat &&
       count(Resource::Ore) >= pile.ore
+  end
+
+  def total : Int32
+    @wood + @brick + @sheep + @wheat + @ore
   end
 
   def add(pile : ResourcePile) : Nil
@@ -186,6 +192,8 @@ class GameState
   property largest_army_player_id : PlayerId?
   property largest_army_size : Int32
   property winner_player_id : PlayerId?
+  property pending_robber_discards : Hash(PlayerId, Int32)
+  property robber_eligible_victim_ids : Array(PlayerId)
   property version : Int32
 
   def initialize(
@@ -201,6 +209,8 @@ class GameState
     @largest_army_player_id = nil
     @largest_army_size = 0
     @winner_player_id = nil
+    @pending_robber_discards = {} of PlayerId => Int32
+    @robber_eligible_victim_ids = [] of PlayerId
     @bank = Bank.new
     @player_order = @players.keys.shuffle(random: @rng)
     board_setup = BoardSetupGenerator.generate(@topology, @rng)

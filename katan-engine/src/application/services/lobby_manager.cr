@@ -342,6 +342,25 @@ module Katan::Engine::Application
       puts "Failed to roll dice for #{lobby_id}: #{ex.message}"
     end
 
+    def discard_robber(lobby_id : String, player_id : String, discarded : ResourcePile)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = RobberDiscarded.new(next_version(game_state), PlayerId.new(player_id), discarded)
+
+      game_state.apply!(event)
+      actor_name = game_state.player!(event.player_id).name
+      persist_game_event(
+        lobby_id,
+        game_state,
+        "robber_discarded",
+        player_id,
+        serialize_event_payload(event).to_json,
+        "#{actor_name} discarded #{event.discarded.total} cards for the robber."
+      )
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to discard for robber for #{lobby_id}: #{ex.message}"
+    end
+
     def move_robber(lobby_id : String, player_id : String, tile_id : String)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       event = RobberMoved.new(next_version(game_state), PlayerId.new(player_id), TileId.new(tile_id))
@@ -351,6 +370,29 @@ module Katan::Engine::Application
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to move robber for #{lobby_id}: #{ex.message}"
+    end
+
+    def robber_steal(lobby_id : String, player_id : String, victim_player_id : String)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      player = PlayerId.new(player_id)
+      victim = PlayerId.new(victim_player_id)
+      stolen_resource = random_resource_from_hand(game_state.player!(victim).hand)
+      event = RobberStolen.new(next_version(game_state), player, victim, stolen_resource)
+
+      game_state.apply!(event)
+      actor_name = game_state.player!(event.player_id).name
+      victim_name = game_state.player!(event.victim_player_id).name
+      persist_game_event(
+        lobby_id,
+        game_state,
+        "robber_stolen",
+        player_id,
+        serialize_event_payload(event).to_json,
+        "#{actor_name} stole a random card from #{victim_name}."
+      )
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to steal with robber for #{lobby_id}: #{ex.message}"
     end
 
     def end_turn(lobby_id : String, player_id : String)
@@ -444,6 +486,13 @@ module Katan::Engine::Application
           current_player_id: game_state.turn.current_player_id.value,
           number: game_state.turn.number,
           phase: game_state.turn.phase.to_s,
+          pending_robber_discards: game_state.pending_robber_discards.map { |target_player_id, count|
+            {
+              player_id: target_player_id.value,
+              count: count,
+            }
+          },
+          robber_eligible_victim_ids: game_state.robber_eligible_victim_ids.map(&.value),
         },
         last_roll: game_state.last_roll ? {
           die_one: game_state.last_roll.not_nil!.die_one,
@@ -612,11 +661,24 @@ module Katan::Engine::Application
           die_two: event.die_two,
           total: event.total,
         }
+      when RobberDiscarded
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          discarded: event.discarded.to_json_payload,
+        }
       when RobberMoved
         {
           version: event.version,
           player_id: event.player_id.value,
           tile_id: event.tile_id.value,
+        }
+      when RobberStolen
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          victim_player_id: event.victim_player_id.value,
+          resource: event.resource.to_s,
         }
       when TurnEnded
         {
@@ -649,7 +711,22 @@ module Katan::Engine::Application
     end
 
     private def total_resources(hand : ResourceHand) : Int32
-      hand.wood + hand.brick + hand.sheep + hand.wheat + hand.ore
+      hand.total
+    end
+
+    private def random_resource_from_hand(hand : ResourceHand) : Resource
+      total = hand.total
+      raise "cannot steal from empty hand" if total.zero?
+
+      target = Random.rand(total)
+      running_total = 0
+
+      [Resource::Wood, Resource::Brick, Resource::Sheep, Resource::Wheat, Resource::Ore].each do |resource|
+        running_total += hand.count(resource)
+        return resource if target < running_total
+      end
+
+      raise "failed to choose a random resource"
     end
 
     private def bank_trade_rate_for(game_state : GameState, player_id : PlayerId, resource : Resource) : Int32

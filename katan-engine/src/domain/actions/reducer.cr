@@ -28,8 +28,12 @@ class GameState
       apply_bank_trade_completed!(event)
     when DiceRolled
       apply_dice_rolled!(event)
+    when RobberDiscarded
+      apply_robber_discarded!(event)
     when RobberMoved
       apply_robber_moved!(event)
+    when RobberStolen
+      apply_robber_stolen!(event)
     when TurnEnded
       apply_turn_ended!(event)
     else
@@ -125,6 +129,7 @@ class GameState
     player.knights_played += 1
     @board.robber_tile_id = event.tile_id
     @turn.dev_card_played_this_turn = true
+    advance_robber_after_move!(event.player_id, event.tile_id)
   end
 
   private def apply_road_building_played!(event : RoadBuildingPlayed) : Nil
@@ -192,13 +197,43 @@ class GameState
   private def apply_dice_rolled!(event : DiceRolled) : Nil
     validate_dice_roll!(event)
     @last_roll = DiceRoll.new(event.die_one, event.die_two)
-    distribute_resources!(event.total) unless event.total == 7
-    @turn.phase = event.total == 7 ? TurnPhase::MoveRobber : TurnPhase::Main
+    if event.total == 7
+      @pending_robber_discards = players_requiring_robber_discard
+      @robber_eligible_victim_ids.clear
+      @turn.phase = @pending_robber_discards.empty? ? TurnPhase::MoveRobber : TurnPhase::DiscardResources
+    else
+      distribute_resources!(event.total)
+      @turn.phase = TurnPhase::Main
+    end
+  end
+
+  private def apply_robber_discarded!(event : RobberDiscarded) : Nil
+    validate_robber_discard!(event)
+    player = player!(event.player_id)
+
+    player.hand.remove(event.discarded)
+    event.discarded.each_nonzero do |resource, amount|
+      @bank.deposit!(resource, amount)
+    end
+
+    @pending_robber_discards.delete(event.player_id)
+    @turn.phase = TurnPhase::MoveRobber if @pending_robber_discards.empty?
   end
 
   private def apply_robber_moved!(event : RobberMoved) : Nil
     validate_robber_move!(event)
     @board.robber_tile_id = event.tile_id
+    advance_robber_after_move!(event.player_id, event.tile_id)
+  end
+
+  private def apply_robber_stolen!(event : RobberStolen) : Nil
+    validate_robber_stolen!(event)
+    player = player!(event.player_id)
+    victim = player!(event.victim_player_id)
+
+    victim.hand.remove(event.resource)
+    player.hand.add(event.resource)
+    @robber_eligible_victim_ids.clear
     @turn.phase = TurnPhase::Main
   end
 
@@ -206,6 +241,8 @@ class GameState
     validate_turn_end!(event)
     player!(event.player_id).finalize_turn!
     @turn.dev_card_played_this_turn = false
+    @pending_robber_discards.clear
+    @robber_eligible_victim_ids.clear
 
     idx = @player_order.index(@turn.current_player_id) || raise "current player missing"
     next_idx = (idx + 1) % @player_order.size
@@ -463,11 +500,28 @@ class GameState
     raise "dice total must be between 2 and 12" unless (2..12).includes?(event.total)
   end
 
+  private def validate_robber_discard!(event : RobberDiscarded) : Nil
+    raise "can only discard during the robber discard phase" unless @turn.phase.discard_resources?
+    expected = @pending_robber_discards[event.player_id]? || raise "player does not need to discard"
+    raise "wrong discard count" unless event.discarded.total == expected
+    raise "player does not have discarded resources" unless player!(event.player_id).hand.can_cover?(event.discarded)
+  end
+
   private def validate_robber_move!(event : RobberMoved) : Nil
     raise "wrong player moved robber" unless event.player_id == @turn.current_player_id
     raise "can only move robber after rolling a 7" unless @turn.phase.move_robber?
     raise "unknown tile #{event.tile_id.value}" unless @topology.tiles.has_key?(event.tile_id)
     raise "robber must move to a different tile" if event.tile_id == @board.robber_tile_id
+  end
+
+  private def validate_robber_stolen!(event : RobberStolen) : Nil
+    raise "wrong player stole with robber" unless event.player_id == @turn.current_player_id
+    raise "can only steal after moving the robber" unless @turn.phase.steal_resource?
+    raise "player is not an eligible robbery victim" unless @robber_eligible_victim_ids.includes?(event.victim_player_id)
+
+    victim = player!(event.victim_player_id)
+    raise "victim has no resources to steal" if victim.hand.total.zero?
+    raise "stolen resource not in victim hand" unless victim.hand.count(event.resource) > 0
   end
 
   private def validate_turn_end!(event : TurnEnded) : Nil
@@ -559,6 +613,27 @@ class GameState
 
   private def has_negative_resources?(pile : ResourcePile) : Bool
     pile.wood < 0 || pile.brick < 0 || pile.sheep < 0 || pile.wheat < 0 || pile.ore < 0
+  end
+
+  private def players_requiring_robber_discard : Hash(PlayerId, Int32)
+    @player_order.each_with_object({} of PlayerId => Int32) do |player_id, memo|
+      total = player!(player_id).hand.total
+      memo[player_id] = total // 2 if total > 7
+    end
+  end
+
+  private def advance_robber_after_move!(player_id : PlayerId, tile_id : TileId) : Nil
+    @robber_eligible_victim_ids = robber_eligible_victims(player_id, tile_id)
+    @turn.phase = @robber_eligible_victim_ids.empty? ? TurnPhase::Main : TurnPhase::StealResource
+  end
+
+  private def robber_eligible_victims(player_id : PlayerId, tile_id : TileId) : Array(PlayerId)
+    @topology.tiles[tile_id].vertex_ids.each_with_object([] of PlayerId) do |vertex_id, memo|
+      next unless building = @board.building_at?(vertex_id)
+      next if building.player_id == player_id
+      next if player!(building.player_id).hand.total.zero?
+      memo << building.player_id unless memo.includes?(building.player_id)
+    end
   end
 
   private def validate_dev_card_play!(player_id : PlayerId, card : DevCard) : Nil

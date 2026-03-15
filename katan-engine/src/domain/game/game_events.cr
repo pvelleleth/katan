@@ -118,11 +118,30 @@ class DiceRolled < GameEvent
   end
 end
 
+class RobberDiscarded < GameEvent
+  getter player_id : PlayerId
+  getter discarded : ResourcePile
+
+  def initialize(@version : Int32, @player_id : PlayerId, @discarded : ResourcePile)
+    super(@version)
+  end
+end
+
 class RobberMoved < GameEvent
   getter player_id : PlayerId
   getter tile_id : TileId
 
   def initialize(@version : Int32, @player_id : PlayerId, @tile_id : TileId)
+    super(@version)
+  end
+end
+
+class RobberStolen < GameEvent
+  getter player_id : PlayerId
+  getter victim_player_id : PlayerId
+  getter resource : Resource
+
+  def initialize(@version : Int32, @player_id : PlayerId, @victim_player_id : PlayerId, @resource : Resource)
     super(@version)
   end
 end

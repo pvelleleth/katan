@@ -91,7 +91,7 @@ module Katan::Engine::Transport::WebSocket
               end
             end
           end
-        when "start_game", "place_settlement", "place_road", "place_city", "buy_development_card", "play_knight", "play_road_building", "play_monopoly", "play_year_of_plenty", "trade_with_player", "trade_with_bank", "trade_with_harbor", "roll_dice", "move_robber", "end_turn", "game_action"
+        when "start_game", "place_settlement", "place_road", "place_city", "buy_development_card", "play_knight", "play_road_building", "play_monopoly", "play_year_of_plenty", "trade_with_player", "trade_with_bank", "trade_with_harbor", "roll_dice", "discard_robber", "move_robber", "robber_steal", "end_turn", "game_action"
           handle_gameplay_action(client, lid, incoming)
         when "ready"
           if payload = incoming.payload
@@ -195,12 +195,24 @@ module Katan::Engine::Transport::WebSocket
         return unless player_id = client.player_id
 
         @lobby_manager.roll_dice(lobby_id, player_id)
+      when "discard_robber"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        discarded = parse_resource_pile(payload["discarded"]?)
+        @lobby_manager.discard_robber(lobby_id, player_id, discarded) if discarded
       when "move_robber"
         return unless payload = incoming.payload
         return unless player_id = client.player_id
 
         tile_id = payload["tile_id"]?.try(&.as_s?)
         @lobby_manager.move_robber(lobby_id, player_id, tile_id) if tile_id
+      when "robber_steal"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        victim_player_id = payload["victim_player_id"]?.try(&.as_s?)
+        @lobby_manager.robber_steal(lobby_id, player_id, victim_player_id) if victim_player_id
       when "end_turn"
         return unless player_id = client.player_id
 
@@ -263,9 +275,15 @@ module Katan::Engine::Transport::WebSocket
         @lobby_manager.trade_with_bank(lobby_id, player_id, offered_resource, requested_resource) if offered_resource && requested_resource
       when "roll_dice"
         @lobby_manager.roll_dice(lobby_id, player_id)
+      when "discard_robber"
+        discarded = parse_resource_pile(payload["discarded"]?)
+        @lobby_manager.discard_robber(lobby_id, player_id, discarded) if discarded
       when "move_robber"
         tile_id = payload["tile_id"]?.try(&.as_s?)
         @lobby_manager.move_robber(lobby_id, player_id, tile_id) if tile_id
+      when "robber_steal"
+        victim_player_id = payload["victim_player_id"]?.try(&.as_s?)
+        @lobby_manager.robber_steal(lobby_id, player_id, victim_player_id) if victim_player_id
       when "end_turn"
         @lobby_manager.end_turn(lobby_id, player_id)
       else
