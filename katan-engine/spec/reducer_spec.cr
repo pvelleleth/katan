@@ -519,7 +519,7 @@ describe GameState do
     player.dev_cards.year_of_plenty.should eq(0)
   end
 
-  it "completes a player-to-player trade with multi-resource bundles" do
+  it "stores a pending player trade proposal until the partner accepts" do
     game_state = build_game_state
     player_one = game_state.player_order[0]
     player_two = game_state.player_order[1]
@@ -534,8 +534,51 @@ describe GameState do
     game_state.turn.phase = TurnPhase::Main
 
     game_state.apply!(
-      PlayerTradeCompleted.new(
+      PlayerTradeProposed.new(
         1,
+        player_one,
+        player_two,
+        ResourcePile.new(2, 1, 0, 0, 0),
+        ResourcePile.new(0, 0, 1, 2, 0)
+      )
+    )
+
+    pending_trade = game_state.pending_player_trade.not_nil!
+    pending_trade.player_id.should eq(player_one)
+    pending_trade.partner_player_id.should eq(player_two)
+    pending_trade.offered.should eq(ResourcePile.new(2, 1, 0, 0, 0))
+    pending_trade.requested.should eq(ResourcePile.new(0, 0, 1, 2, 0))
+    current_player.hand.wood.should eq(2)
+    other_player.hand.wheat.should eq(2)
+  end
+
+  it "completes a player-to-player trade only after the partner accepts" do
+    game_state = build_game_state
+    player_one = game_state.player_order[0]
+    player_two = game_state.player_order[1]
+    current_player = game_state.player!(player_one)
+    other_player = game_state.player!(player_two)
+
+    current_player.hand.wood = 2
+    current_player.hand.brick = 1
+    other_player.hand.sheep = 1
+    other_player.hand.wheat = 2
+    game_state.turn.current_player_id = player_one
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(
+      PlayerTradeProposed.new(
+        1,
+        player_one,
+        player_two,
+        ResourcePile.new(2, 1, 0, 0, 0),
+        ResourcePile.new(0, 0, 1, 2, 0)
+      )
+    )
+    game_state.apply!(PlayerTradeAccepted.new(2, player_two, player_one))
+    game_state.apply!(
+      PlayerTradeCompleted.new(
+        3,
         player_one,
         player_two,
         ResourcePile.new(2, 1, 0, 0, 0),
@@ -551,6 +594,40 @@ describe GameState do
     other_player.hand.brick.should eq(1)
     other_player.hand.sheep.should eq(0)
     other_player.hand.wheat.should eq(0)
+    game_state.pending_player_trade.should be_nil
+  end
+
+  it "rejects trade completion before the proposal is accepted" do
+    game_state = build_game_state
+    player_one = game_state.player_order[0]
+    player_two = game_state.player_order[1]
+
+    game_state.player!(player_one).hand.wood = 1
+    game_state.player!(player_two).hand.brick = 1
+    game_state.turn.current_player_id = player_one
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(
+      PlayerTradeProposed.new(
+        1,
+        player_one,
+        player_two,
+        ResourcePile.new(1, 0, 0, 0, 0),
+        ResourcePile.new(0, 1, 0, 0, 0)
+      )
+    )
+
+    expect_raises(Exception, "accepted before completion") do
+      game_state.apply!(
+        PlayerTradeCompleted.new(
+          2,
+          player_one,
+          player_two,
+          ResourcePile.new(1, 0, 0, 0, 0),
+          ResourcePile.new(0, 1, 0, 0, 0)
+        )
+      )
+    end
   end
 
   it "rejects player-to-player trades with negative offered resources" do
@@ -569,7 +646,7 @@ describe GameState do
 
     expect_raises(Exception, "negative") do
       game_state.apply!(
-        PlayerTradeCompleted.new(
+        PlayerTradeProposed.new(
           1,
           player_one,
           player_two,
@@ -596,7 +673,7 @@ describe GameState do
 
     expect_raises(Exception, "negative") do
       game_state.apply!(
-        PlayerTradeCompleted.new(
+        PlayerTradeProposed.new(
           1,
           player_one,
           player_two,
@@ -605,6 +682,82 @@ describe GameState do
         )
       )
     end
+  end
+
+  it "rejects trade acceptance from a player other than the proposed partner" do
+    game_state = build_game_state(3)
+    player_one = game_state.player_order[0]
+    player_two = game_state.player_order[1]
+    player_three = game_state.player_order[2]
+
+    game_state.player!(player_one).hand.wood = 1
+    game_state.player!(player_two).hand.brick = 1
+    game_state.turn.current_player_id = player_one
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(
+      PlayerTradeProposed.new(
+        1,
+        player_one,
+        player_two,
+        ResourcePile.new(1, 0, 0, 0, 0),
+        ResourcePile.new(0, 1, 0, 0, 0)
+      )
+    )
+
+    expect_raises(Exception, "acceptor must match proposed partner") do
+      game_state.apply!(PlayerTradeAccepted.new(2, player_three, player_one))
+    end
+  end
+
+  it "clears a pending trade when the proposal is rejected" do
+    game_state = build_game_state
+    player_one = game_state.player_order[0]
+    player_two = game_state.player_order[1]
+
+    game_state.player!(player_one).hand.wood = 1
+    game_state.player!(player_two).hand.brick = 1
+    game_state.turn.current_player_id = player_one
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(
+      PlayerTradeProposed.new(
+        1,
+        player_one,
+        player_two,
+        ResourcePile.new(1, 0, 0, 0, 0),
+        ResourcePile.new(0, 1, 0, 0, 0)
+      )
+    )
+    game_state.apply!(PlayerTradeRejected.new(2, player_two, player_one))
+
+    game_state.pending_player_trade.should be_nil
+    game_state.player!(player_one).hand.wood.should eq(1)
+    game_state.player!(player_two).hand.brick.should eq(1)
+  end
+
+  it "clears a pending trade when the turn ends" do
+    game_state = build_game_state
+    player_one = game_state.player_order[0]
+    player_two = game_state.player_order[1]
+
+    game_state.player!(player_one).hand.wood = 1
+    game_state.player!(player_two).hand.brick = 1
+    game_state.turn.current_player_id = player_one
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(
+      PlayerTradeProposed.new(
+        1,
+        player_one,
+        player_two,
+        ResourcePile.new(1, 0, 0, 0, 0),
+        ResourcePile.new(0, 1, 0, 0, 0)
+      )
+    )
+    game_state.apply!(TurnEnded.new(2, player_one))
+
+    game_state.pending_player_trade.should be_nil
   end
 
   it "trades 4 to 1 with the bank when the player has no harbor" do

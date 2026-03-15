@@ -22,6 +22,12 @@ class GameState
       apply_monopoly_played!(event)
     when YearOfPlentyPlayed
       apply_year_of_plenty_played!(event)
+    when PlayerTradeProposed
+      apply_player_trade_proposed!(event)
+    when PlayerTradeAccepted
+      apply_player_trade_accepted!(event)
+    when PlayerTradeRejected
+      apply_player_trade_rejected!(event)
     when PlayerTradeCompleted
       apply_player_trade_completed!(event)
     when BankTradeCompleted
@@ -173,6 +179,21 @@ class GameState
     @turn.dev_card_played_this_turn = true
   end
 
+  private def apply_player_trade_proposed!(event : PlayerTradeProposed) : Nil
+    validate_player_trade_proposed!(event)
+    @pending_player_trade = PendingPlayerTrade.new(event.player_id, event.partner_player_id, event.offered, event.requested)
+  end
+
+  private def apply_player_trade_accepted!(event : PlayerTradeAccepted) : Nil
+    validate_player_trade_accepted!(event)
+    @pending_player_trade.not_nil!.accepted = true
+  end
+
+  private def apply_player_trade_rejected!(event : PlayerTradeRejected) : Nil
+    validate_player_trade_rejected!(event)
+    @pending_player_trade = nil
+  end
+
   private def apply_player_trade_completed!(event : PlayerTradeCompleted) : Nil
     validate_player_trade_completed!(event)
 
@@ -181,6 +202,7 @@ class GameState
 
     player.hand.transfer_to!(partner.hand, event.offered)
     partner.hand.transfer_to!(player.hand, event.requested)
+    @pending_player_trade = nil
   end
 
   private def apply_bank_trade_completed!(event : BankTradeCompleted) : Nil
@@ -243,6 +265,7 @@ class GameState
     @turn.dev_card_played_this_turn = false
     @pending_robber_discards.clear
     @robber_eligible_victim_ids.clear
+    @pending_player_trade = nil
 
     idx = @player_order.index(@turn.current_player_id) || raise "current player missing"
     next_idx = (idx + 1) % @player_order.size
@@ -581,21 +604,40 @@ class GameState
     end
   end
 
+  private def validate_player_trade_proposed!(event : PlayerTradeProposed) : Nil
+    validate_player_trade_payload!(event.player_id, event.partner_player_id, event.offered, event.requested)
+    raise "trade already pending" if @pending_player_trade
+  end
+
+  private def validate_player_trade_accepted!(event : PlayerTradeAccepted) : Nil
+    pending_trade = pending_player_trade! 
+    raise "trade acceptor must match proposed partner" unless event.player_id == pending_trade.partner_player_id
+    raise "trade proposer mismatch" unless event.partner_player_id == pending_trade.player_id
+    raise "can only accept trades during the main phase" unless @turn.phase.main?
+    raise "trade already accepted" if pending_trade.accepted
+
+    player = player!(pending_trade.player_id)
+    partner = player!(pending_trade.partner_player_id)
+
+    raise "player does not have offered resources" unless player.hand.can_cover?(pending_trade.offered)
+    raise "trading partner does not have requested resources" unless partner.hand.can_cover?(pending_trade.requested)
+  end
+
+  private def validate_player_trade_rejected!(event : PlayerTradeRejected) : Nil
+    pending_trade = pending_player_trade!
+    raise "trade rejector must be part of the trade" unless [pending_trade.player_id, pending_trade.partner_player_id].includes?(event.player_id)
+    raise "trade partner mismatch" unless [pending_trade.player_id, pending_trade.partner_player_id].includes?(event.partner_player_id)
+    raise "can only reject trades during the main phase" unless @turn.phase.main?
+  end
+
   private def validate_player_trade_completed!(event : PlayerTradeCompleted) : Nil
-    raise "wrong player completed trade" unless event.player_id == @turn.current_player_id
-    raise "can only trade during the main phase" unless @turn.phase.main?
-    raise "cannot trade with yourself" if event.partner_player_id == event.player_id
-    raise "unknown trading partner #{event.partner_player_id.value}" unless @players.has_key?(event.partner_player_id)
-    raise "trade offer cannot contain negative resource counts" if has_negative_resources?(event.offered)
-    raise "trade request cannot contain negative resource counts" if has_negative_resources?(event.requested)
-    raise "trade offer cannot be empty" if event.offered.empty?
-    raise "trade request cannot be empty" if event.requested.empty?
-
-    player = player!(event.player_id)
-    partner = player!(event.partner_player_id)
-
-    raise "player does not have offered resources" unless player.hand.can_cover?(event.offered)
-    raise "trading partner does not have requested resources" unless partner.hand.can_cover?(event.requested)
+    pending_trade = pending_player_trade!
+    validate_player_trade_payload!(event.player_id, event.partner_player_id, event.offered, event.requested)
+    raise "trade must be accepted before completion" unless pending_trade.accepted
+    raise "trade completion does not match pending trade" unless event.player_id == pending_trade.player_id &&
+      event.partner_player_id == pending_trade.partner_player_id &&
+      event.offered == pending_trade.offered &&
+      event.requested == pending_trade.requested
   end
 
   private def validate_bank_trade_completed!(event : BankTradeCompleted) : Nil
@@ -613,6 +655,27 @@ class GameState
 
   private def has_negative_resources?(pile : ResourcePile) : Bool
     pile.wood < 0 || pile.brick < 0 || pile.sheep < 0 || pile.wheat < 0 || pile.ore < 0
+  end
+
+  private def validate_player_trade_payload!(player_id : PlayerId, partner_player_id : PlayerId, offered : ResourcePile, requested : ResourcePile) : Nil
+    raise "wrong player completed trade" unless player_id == @turn.current_player_id
+    raise "can only trade during the main phase" unless @turn.phase.main?
+    raise "cannot trade with yourself" if partner_player_id == player_id
+    raise "unknown trading partner #{partner_player_id.value}" unless @players.has_key?(partner_player_id)
+    raise "trade offer cannot contain negative resource counts" if has_negative_resources?(offered)
+    raise "trade request cannot contain negative resource counts" if has_negative_resources?(requested)
+    raise "trade offer cannot be empty" if offered.empty?
+    raise "trade request cannot be empty" if requested.empty?
+
+    player = player!(player_id)
+    partner = player!(partner_player_id)
+
+    raise "player does not have offered resources" unless player.hand.can_cover?(offered)
+    raise "trading partner does not have requested resources" unless partner.hand.can_cover?(requested)
+  end
+
+  private def pending_player_trade! : PendingPlayerTrade
+    @pending_player_trade || raise "no pending player trade"
   end
 
   private def players_requiring_robber_discard : Hash(PlayerId, Int32)

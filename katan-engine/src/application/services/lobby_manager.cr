@@ -287,9 +287,9 @@ module Katan::Engine::Application
       puts "Failed to play year of plenty for #{lobby_id}: #{ex.message}"
     end
 
-    def trade_with_player(lobby_id : String, player_id : String, partner_player_id : String, offered : ResourcePile, requested : ResourcePile)
+    def propose_player_trade(lobby_id : String, player_id : String, partner_player_id : String, offered : ResourcePile, requested : ResourcePile)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
-      event = PlayerTradeCompleted.new(next_version(game_state), PlayerId.new(player_id), PlayerId.new(partner_player_id), offered, requested)
+      event = PlayerTradeProposed.new(next_version(game_state), PlayerId.new(player_id), PlayerId.new(partner_player_id), offered, requested)
 
       game_state.apply!(event)
       actor_name = game_state.player!(event.player_id).name
@@ -297,14 +297,68 @@ module Katan::Engine::Application
       persist_game_event(
         lobby_id,
         game_state,
-        "player_trade_completed",
+        "player_trade_proposed",
         player_id,
         serialize_event_payload(event).to_json,
-        "#{actor_name} traded with #{partner_name}."
+        "#{actor_name} proposed a trade to #{partner_name}."
       )
       broadcast_game_state(lobby_id)
     rescue ex
-      puts "Failed to trade with player for #{lobby_id}: #{ex.message}"
+      puts "Failed to propose player trade for #{lobby_id}: #{ex.message}"
+    end
+
+    def accept_player_trade(lobby_id : String, player_id : String)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      pending_trade = game_state.pending_player_trade || raise "no pending player trade"
+
+      accepted_event = PlayerTradeAccepted.new(next_version(game_state), PlayerId.new(player_id), pending_trade.player_id)
+      game_state.apply!(accepted_event)
+      actor_name = game_state.player!(accepted_event.player_id).name
+      partner_name = game_state.player!(accepted_event.partner_player_id).name
+      persist_game_event(
+        lobby_id,
+        game_state,
+        "player_trade_accepted",
+        player_id,
+        serialize_event_payload(accepted_event).to_json,
+        "#{actor_name} accepted #{partner_name}'s trade."
+      )
+
+      completed_event = PlayerTradeCompleted.new(next_version(game_state), pending_trade.player_id, pending_trade.partner_player_id, pending_trade.offered, pending_trade.requested)
+      game_state.apply!(completed_event)
+      persist_game_event(
+        lobby_id,
+        game_state,
+        "player_trade_completed",
+        player_id,
+        serialize_event_payload(completed_event).to_json,
+        "#{partner_name} traded with #{actor_name}."
+      )
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to accept player trade for #{lobby_id}: #{ex.message}"
+    end
+
+    def reject_player_trade(lobby_id : String, player_id : String)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      pending_trade = game_state.pending_player_trade || raise "no pending player trade"
+      partner_player_id = pending_trade.player_id == PlayerId.new(player_id) ? pending_trade.partner_player_id : pending_trade.player_id
+      event = PlayerTradeRejected.new(next_version(game_state), PlayerId.new(player_id), partner_player_id)
+
+      game_state.apply!(event)
+      actor_name = game_state.player!(event.player_id).name
+      partner_name = game_state.player!(event.partner_player_id).name
+      persist_game_event(
+        lobby_id,
+        game_state,
+        "player_trade_rejected",
+        player_id,
+        serialize_event_payload(event).to_json,
+        "#{actor_name} rejected the trade with #{partner_name}."
+      )
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to reject player trade for #{lobby_id}: #{ex.message}"
     end
 
     def trade_with_bank(lobby_id : String, player_id : String, offered_resource : Resource, requested_resource : Resource)
@@ -486,6 +540,13 @@ module Katan::Engine::Application
           current_player_id: game_state.turn.current_player_id.value,
           number: game_state.turn.number,
           phase: game_state.turn.phase.to_s,
+          pending_player_trade: game_state.pending_player_trade ? {
+            player_id: game_state.pending_player_trade.not_nil!.player_id.value,
+            partner_player_id: game_state.pending_player_trade.not_nil!.partner_player_id.value,
+            offered: game_state.pending_player_trade.not_nil!.offered.to_json_payload,
+            requested: game_state.pending_player_trade.not_nil!.requested.to_json_payload,
+            accepted: game_state.pending_player_trade.not_nil!.accepted,
+          } : nil,
           pending_robber_discards: game_state.pending_robber_discards.map { |target_player_id, count|
             {
               player_id: target_player_id.value,
@@ -638,6 +699,26 @@ module Katan::Engine::Application
           player_id: event.player_id.value,
           first_resource: event.first_resource.to_s,
           second_resource: event.second_resource.to_s,
+        }
+      when PlayerTradeProposed
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          partner_player_id: event.partner_player_id.value,
+          offered: event.offered.to_json_payload,
+          requested: event.requested.to_json_payload,
+        }
+      when PlayerTradeAccepted
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          partner_player_id: event.partner_player_id.value,
+        }
+      when PlayerTradeRejected
+        {
+          version: event.version,
+          player_id: event.player_id.value,
+          partner_player_id: event.partner_player_id.value,
         }
       when PlayerTradeCompleted
         {

@@ -168,6 +168,17 @@ class TurnState
   end
 end
 
+class PendingPlayerTrade
+  getter player_id : PlayerId
+  getter partner_player_id : PlayerId
+  getter offered : ResourcePile
+  getter requested : ResourcePile
+  property accepted : Bool
+
+  def initialize(@player_id : PlayerId, @partner_player_id : PlayerId, @offered : ResourcePile, @requested : ResourcePile, @accepted : Bool = false)
+  end
+end
+
 struct DiceRoll
   getter die_one : Int32
   getter die_two : Int32
@@ -194,6 +205,7 @@ class GameState
   property winner_player_id : PlayerId?
   property pending_robber_discards : Hash(PlayerId, Int32)
   property robber_eligible_victim_ids : Array(PlayerId)
+  property pending_player_trade : PendingPlayerTrade?
   property version : Int32
 
   def initialize(
@@ -211,6 +223,7 @@ class GameState
     @winner_player_id = nil
     @pending_robber_discards = {} of PlayerId => Int32
     @robber_eligible_victim_ids = [] of PlayerId
+    @pending_player_trade = nil
     @bank = Bank.new
     @player_order = @players.keys.shuffle(random: @rng)
     board_setup = BoardSetupGenerator.generate(@topology, @rng)

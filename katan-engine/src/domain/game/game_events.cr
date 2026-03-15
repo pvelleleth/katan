@@ -86,6 +86,35 @@ class YearOfPlentyPlayed < GameEvent
   end
 end
 
+class PlayerTradeProposed < GameEvent
+  getter player_id : PlayerId
+  getter partner_player_id : PlayerId
+  getter offered : ResourcePile
+  getter requested : ResourcePile
+
+  def initialize(@version : Int32, @player_id : PlayerId, @partner_player_id : PlayerId, @offered : ResourcePile, @requested : ResourcePile)
+    super(@version)
+  end
+end
+
+class PlayerTradeAccepted < GameEvent
+  getter player_id : PlayerId
+  getter partner_player_id : PlayerId
+
+  def initialize(@version : Int32, @player_id : PlayerId, @partner_player_id : PlayerId)
+    super(@version)
+  end
+end
+
+class PlayerTradeRejected < GameEvent
+  getter player_id : PlayerId
+  getter partner_player_id : PlayerId
+
+  def initialize(@version : Int32, @player_id : PlayerId, @partner_player_id : PlayerId)
+    super(@version)
+  end
+end
+
 class PlayerTradeCompleted < GameEvent
   getter player_id : PlayerId
   getter partner_player_id : PlayerId
