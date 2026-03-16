@@ -6,7 +6,10 @@
 	import Dice from './Dice.svelte';
 	import TradeComposer from './TradeComposer.svelte';
 	import TradeOfferPopup from './TradeOfferPopup.svelte';
+	import GameOverScreen from './GameOverScreen.svelte';
 	import type { ResourceKey, ResourcePile } from './trade';
+
+	$: isGameOver = gameState?.turn?.phase === 'GameOver';
 
 	export let gameState: any;
 	export let playerId: string;
@@ -184,4 +187,8 @@
 			/>
 		</div>
 	</main>
+
+	{#if isGameOver}
+		<GameOverScreen {gameState} {players} {playerId} />
+	{/if}
 </div>
