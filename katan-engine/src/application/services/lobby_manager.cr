@@ -24,7 +24,7 @@ module Katan::Engine::Application
 
     def initialize(
       @game_event_store : Infrastructure::Persistence::GameEventStore = Infrastructure::Persistence::NullGameEventStore.new,
-      @dice_roller : DiceRoller = RandomDiceRoller.new
+      @dice_roller : DiceRoller = RandomDiceRoller.new,
     )
     end
 
@@ -49,8 +49,17 @@ module Katan::Engine::Application
       client.player_id = player_id
       remove_existing_clients(lobby_id, player_id, client)
       add_client(lobby_id, client)
-      
+
       broadcast_lobby_state(lobby_id)
+
+      if game_state = @games[lobby_id]?
+        client.send_json(
+          {
+            type:       "game_update",
+            game_state: serialize_game_state(game_state, client.player_id),
+          }.to_json
+        )
+      end
     end
 
     def disconnect_client(client : Transport::WebSocket::Client)
@@ -180,6 +189,16 @@ module Katan::Engine::Application
         message: "Game started."
       )
 
+      if list = @clients[lobby_id]?
+        event_json = {
+          type:    "game_log",
+          message: "Game started.",
+        }.to_json
+        list.each do |client|
+          client.send_json(event_json)
+        end
+      end
+
       broadcast_game_state(lobby_id, "game_started")
       broadcast_lobby_state(lobby_id)
     rescue ex
@@ -191,7 +210,15 @@ module Katan::Engine::Application
       event = SettlementPlaced.new(next_version(game_state), PlayerId.new(player_id), VertexId.new(vertex_id), free)
 
       game_state.apply!(event)
-      persist_game_event(lobby_id, game_state, "settlement_placed", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} placed a settlement.")
+      
+      message = "#{game_state.player!(event.player_id).name} placed a settlement."
+      if free && game_state.turn.phase == TurnPhase::Setup2Road
+        # They just placed their second settlement and got resources
+        # We don't have the exact list returned, but we can just say they got starting resources
+        message += " They received their starting resources."
+      end
+
+      persist_game_event(lobby_id, game_state, "settlement_placed", player_id, serialize_event_payload(event).to_json, message)
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to place settlement for #{lobby_id}: #{ex.message}"
@@ -222,10 +249,10 @@ module Katan::Engine::Application
     def buy_development_card(lobby_id : String, player_id : String)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       actor = PlayerId.new(player_id)
-      
+
       # Validate purchase before sampling to avoid RNG contamination from rejected attempts
       validate_development_card_purchase!(game_state, actor)
-      
+
       card = game_state.bank.sample_dev_card(Random::DEFAULT)
       event = DevelopmentCardPurchased.new(next_version(game_state), actor, card)
 
@@ -235,7 +262,7 @@ module Katan::Engine::Application
     rescue ex
       puts "Failed to buy development card for #{lobby_id}: #{ex.message}"
     end
-    
+
     private def validate_development_card_purchase!(game_state : GameState, player_id : PlayerId) : Nil
       raise "wrong player bought development card" unless player_id == game_state.turn.current_player_id
       raise "can only buy development cards during the main phase" unless game_state.turn.phase.main?
@@ -287,20 +314,19 @@ module Katan::Engine::Application
       puts "Failed to play year of plenty for #{lobby_id}: #{ex.message}"
     end
 
-    def propose_player_trade(lobby_id : String, player_id : String, partner_player_id : String, offered : ResourcePile, requested : ResourcePile)
+    def propose_player_trade(lobby_id : String, player_id : String, offered : ResourcePile, requested : ResourcePile)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
-      event = PlayerTradeProposed.new(next_version(game_state), PlayerId.new(player_id), PlayerId.new(partner_player_id), offered, requested)
+      event = PlayerTradeProposed.new(next_version(game_state), PlayerId.new(player_id), offered, requested)
 
       game_state.apply!(event)
       actor_name = game_state.player!(event.player_id).name
-      partner_name = game_state.player!(event.partner_player_id).name
       persist_game_event(
         lobby_id,
         game_state,
         "player_trade_proposed",
         player_id,
         serialize_event_payload(event).to_json,
-        "#{actor_name} proposed a trade to #{partner_name}."
+        "#{actor_name} proposed a trade."
       )
       broadcast_game_state(lobby_id)
     rescue ex
@@ -321,18 +347,7 @@ module Katan::Engine::Application
         "player_trade_accepted",
         player_id,
         serialize_event_payload(accepted_event).to_json,
-        "#{actor_name} accepted #{partner_name}'s trade."
-      )
-
-      completed_event = PlayerTradeCompleted.new(next_version(game_state), pending_trade.player_id, pending_trade.partner_player_id, pending_trade.offered, pending_trade.requested)
-      game_state.apply!(completed_event)
-      persist_game_event(
-        lobby_id,
-        game_state,
-        "player_trade_completed",
-        player_id,
-        serialize_event_payload(completed_event).to_json,
-        "#{partner_name} traded with #{actor_name}."
+        "#{actor_name} is willing to trade with #{partner_name}."
       )
       broadcast_game_state(lobby_id)
     rescue ex
@@ -342,8 +357,7 @@ module Katan::Engine::Application
     def reject_player_trade(lobby_id : String, player_id : String)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       pending_trade = game_state.pending_player_trade || raise "no pending player trade"
-      partner_player_id = pending_trade.player_id == PlayerId.new(player_id) ? pending_trade.partner_player_id : pending_trade.player_id
-      event = PlayerTradeRejected.new(next_version(game_state), PlayerId.new(player_id), partner_player_id)
+      event = PlayerTradeRejected.new(next_version(game_state), PlayerId.new(player_id), pending_trade.player_id)
 
       game_state.apply!(event)
       actor_name = game_state.player!(event.player_id).name
@@ -354,11 +368,51 @@ module Katan::Engine::Application
         "player_trade_rejected",
         player_id,
         serialize_event_payload(event).to_json,
-        "#{actor_name} rejected the trade with #{partner_name}."
+        "#{actor_name} passed on #{partner_name}'s trade."
       )
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to reject player trade for #{lobby_id}: #{ex.message}"
+    end
+
+    def cancel_player_trade(lobby_id : String, player_id : String)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      event = PlayerTradeCancelled.new(next_version(game_state), PlayerId.new(player_id))
+
+      game_state.apply!(event)
+      actor_name = game_state.player!(event.player_id).name
+      persist_game_event(
+        lobby_id,
+        game_state,
+        "player_trade_cancelled",
+        player_id,
+        serialize_event_payload(event).to_json,
+        "#{actor_name} canceled the trade."
+      )
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to cancel player trade for #{lobby_id}: #{ex.message}"
+    end
+
+    def finalize_player_trade(lobby_id : String, player_id : String, partner_player_id : String)
+      game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      pending_trade = game_state.pending_player_trade || raise "no pending player trade"
+      event = PlayerTradeCompleted.new(next_version(game_state), PlayerId.new(player_id), PlayerId.new(partner_player_id), pending_trade.offered, pending_trade.requested)
+
+      game_state.apply!(event)
+      actor_name = game_state.player!(event.player_id).name
+      partner_name = game_state.player!(event.partner_player_id).name
+      persist_game_event(
+        lobby_id,
+        game_state,
+        "player_trade_completed",
+        player_id,
+        serialize_event_payload(event).to_json,
+        "#{actor_name} traded with #{partner_name}."
+      )
+      broadcast_game_state(lobby_id)
+    rescue ex
+      puts "Failed to finalize player trade for #{lobby_id}: #{ex.message}"
     end
 
     def trade_with_bank(lobby_id : String, player_id : String, offered_resource : Resource, requested_resource : Resource)
@@ -389,8 +443,22 @@ module Katan::Engine::Application
       roll = @dice_roller.roll
       event = DiceRolled.new(next_version(game_state), roll.die_one, roll.die_two)
 
-      game_state.apply!(event)
-      persist_game_event(lobby_id, game_state, "dice_rolled", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(actor).name} rolled #{event.total}.")
+      granted_log = game_state.apply!(event)
+
+      message = "#{game_state.player!(actor).name} rolled #{event.total}."
+
+      if granted_log && !granted_log.empty?
+        parts = [] of String
+        granted_log.each do |pid, resources|
+          next if resources.empty?
+          pname = game_state.player!(PlayerId.new(pid)).name
+          res_strs = resources.map { |r, amt| "#{amt} #{r}" }
+          parts << "#{pname} got #{res_strs.join(", ")}"
+        end
+        message += " " + parts.join("; ") unless parts.empty?
+      end
+
+      persist_game_event(lobby_id, game_state, "dice_rolled", player_id, serialize_event_payload(event).to_json, message)
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to roll dice for #{lobby_id}: #{ex.message}"
@@ -523,8 +591,8 @@ module Katan::Engine::Application
       list.each do |client|
         client.send_json(
           {
-            type: message_type,
-            game_state: serialize_game_state(game_state, client.player_id)
+            type:       message_type,
+            game_state: serialize_game_state(game_state, client.player_id),
           }.to_json
         )
       end
@@ -534,23 +602,17 @@ module Katan::Engine::Application
 
     private def serialize_game_state(game_state : GameState, viewer_player_id : String? = nil, include_all_hands : Bool = false)
       {
-        version: game_state.version,
+        version:      game_state.version,
         player_order: game_state.player_order.map(&.value),
-        turn: {
-          current_player_id: game_state.turn.current_player_id.value,
-          number: game_state.turn.number,
-          phase: game_state.turn.phase.to_s,
-          pending_player_trade: game_state.pending_player_trade ? {
-            player_id: game_state.pending_player_trade.not_nil!.player_id.value,
-            partner_player_id: game_state.pending_player_trade.not_nil!.partner_player_id.value,
-            offered: game_state.pending_player_trade.not_nil!.offered.to_json_payload,
-            requested: game_state.pending_player_trade.not_nil!.requested.to_json_payload,
-            accepted: game_state.pending_player_trade.not_nil!.accepted,
-          } : nil,
+        turn:         {
+          current_player_id:    game_state.turn.current_player_id.value,
+          number:               game_state.turn.number,
+          phase:                game_state.turn.phase.to_s,
+          pending_player_trade: serialize_pending_player_trade(game_state.pending_player_trade, viewer_player_id),
           pending_robber_discards: game_state.pending_robber_discards.map { |target_player_id, count|
             {
               player_id: target_player_id.value,
-              count: count,
+              count:     count,
             }
           },
           robber_eligible_victim_ids: game_state.robber_eligible_victim_ids.map(&.value),
@@ -558,92 +620,92 @@ module Katan::Engine::Application
         last_roll: game_state.last_roll ? {
           die_one: game_state.last_roll.not_nil!.die_one,
           die_two: game_state.last_roll.not_nil!.die_two,
-          total: game_state.last_roll.not_nil!.total,
+          total:   game_state.last_roll.not_nil!.total,
         } : nil,
         players: game_state.player_order.map { |player_id|
           player = game_state.player!(player_id)
           {
-            id: player.id.value,
-            name: player.name,
-            victory_points: player.victory_points,
-            victory_point_cards: include_all_hands || player.id.value == viewer_player_id ? player.revealed_victory_point_cards : 0,
-            roads_left: player.roads_left,
-            settlements_left: player.settlements_left,
-            cities_left: player.cities_left,
-            knights_played: player.knights_played,
-            has_longest_road: game_state.longest_road_player_id == player.id,
-            has_largest_army: game_state.largest_army_player_id == player.id,
-            resource_count: total_resources(player.hand),
+            id:                     player.id.value,
+            name:                   player.name,
+            victory_points:         player.victory_points,
+            victory_point_cards:    include_all_hands || player.id.value == viewer_player_id ? player.revealed_victory_point_cards : 0,
+            roads_left:             player.roads_left,
+            settlements_left:       player.settlements_left,
+            cities_left:            player.cities_left,
+            knights_played:         player.knights_played,
+            has_longest_road:       game_state.longest_road_player_id == player.id,
+            has_largest_army:       game_state.largest_army_player_id == player.id,
+            resource_count:         total_resources(player.hand),
             development_card_count: player.total_dev_cards,
-            hand: include_all_hands || player.id.value == viewer_player_id ? {
-              wood: player.hand.wood,
+            hand:                   include_all_hands || player.id.value == viewer_player_id ? {
+              wood:  player.hand.wood,
               brick: player.hand.brick,
               sheep: player.hand.sheep,
               wheat: player.hand.wheat,
-              ore: player.hand.ore,
+              ore:   player.hand.ore,
             } : nil,
             development_cards: include_all_hands || player.id.value == viewer_player_id ? {
-              playable: player.dev_cards.to_json_payload,
+              playable:        player.dev_cards.to_json_payload,
               newly_purchased: player.newly_purchased_dev_cards.to_json_payload,
             } : nil,
           }
         },
-        bank: game_state.bank.to_json_payload,
+        bank:  game_state.bank.to_json_payload,
         board: {
           tiles: game_state.topology.tiles.values.sort_by(&.id.value).map { |tile|
             tile_state = game_state.board.tile_states[tile.id]
             {
-              id: tile.id.value,
-              x: tile.x,
-              y: tile.y,
-              resource: tile_state.resource.to_s,
-              token: tile_state.token,
-              has_robber: game_state.board.robber_tile_id == tile.id
+              id:         tile.id.value,
+              x:          tile.x,
+              y:          tile.y,
+              resource:   tile_state.resource.to_s,
+              token:      tile_state.token,
+              has_robber: game_state.board.robber_tile_id == tile.id,
             }
           },
           vertices: game_state.topology.vertices.values.sort_by(&.id.value).map { |vertex|
             building = game_state.board.building_at?(vertex.id)
             {
-              id: vertex.id.value,
-              x: vertex.x,
-              y: vertex.y,
+              id:       vertex.id.value,
+              x:        vertex.x,
+              y:        vertex.y,
               building: building ? {
                 player_id: building.player_id.value,
-                kind: building.kind.to_s
-              } : nil
+                kind:      building.kind.to_s,
+              } : nil,
             }
           },
           edges: game_state.topology.edges.values.sort_by(&.id.value).map { |edge|
             road = game_state.board.road_at?(edge.id)
             {
-              id: edge.id.value,
-              v1: edge.vertex_ids[0].value,
-              v2: edge.vertex_ids[1].value,
+              id:   edge.id.value,
+              v1:   edge.vertex_ids[0].value,
+              v2:   edge.vertex_ids[1].value,
               road: road ? {
-                player_id: road.player_id.value
-              } : nil
+                player_id: road.player_id.value,
+              } : nil,
             }
           },
           harbors: game_state.board.harbors.sort_by(&.id.value).map { |harbor|
             {
-              id: harbor.id.value,
+              id:         harbor.id.value,
               vertex_ids: [harbor.vertex_ids[0].value, harbor.vertex_ids[1].value],
-              kind: harbor.kind.to_s,
+              kind:       harbor.kind.to_s,
             }
-          }
+          },
         },
         awards: {
           longest_road: game_state.longest_road_player_id ? {
             player_id: game_state.longest_road_player_id.not_nil!.value,
-            length: game_state.longest_road_length,
+            length:    game_state.longest_road_length,
           } : nil,
           largest_army: game_state.largest_army_player_id ? {
             player_id: game_state.largest_army_player_id.not_nil!.value,
-            size: game_state.largest_army_size,
+            size:      game_state.largest_army_size,
           } : nil,
         },
         winner_player_id: game_state.winner_player_id.try(&.value),
-        settings: game_state.settings,
+        settings:         game_state.settings,
       }
     end
 
@@ -651,89 +713,93 @@ module Katan::Engine::Application
       case event
       when SettlementPlaced
         {
-          version: event.version,
+          version:   event.version,
           player_id: event.player_id.value,
           vertex_id: event.vertex_id.value,
-          free: event.free,
+          free:      event.free,
         }
       when RoadPlaced
         {
-          version: event.version,
+          version:   event.version,
           player_id: event.player_id.value,
-          edge_id: event.edge_id.value,
-          free: event.free,
+          edge_id:   event.edge_id.value,
+          free:      event.free,
         }
       when CityPlaced
         {
-          version: event.version,
+          version:   event.version,
           player_id: event.player_id.value,
           vertex_id: event.vertex_id.value,
         }
       when DevelopmentCardPurchased
         {
-          version: event.version,
+          version:   event.version,
           player_id: event.player_id.value,
-          card: event.card.to_s,
+          card:      event.card.to_s,
         }
       when KnightPlayed
         {
-          version: event.version,
+          version:   event.version,
           player_id: event.player_id.value,
-          tile_id: event.tile_id.value,
+          tile_id:   event.tile_id.value,
         }
       when RoadBuildingPlayed
         {
-          version: event.version,
-          player_id: event.player_id.value,
-          first_edge_id: event.first_edge_id.value,
+          version:        event.version,
+          player_id:      event.player_id.value,
+          first_edge_id:  event.first_edge_id.value,
           second_edge_id: event.second_edge_id.try(&.value),
         }
       when MonopolyPlayed
         {
-          version: event.version,
+          version:   event.version,
           player_id: event.player_id.value,
-          resource: event.resource.to_s,
+          resource:  event.resource.to_s,
         }
       when YearOfPlentyPlayed
         {
-          version: event.version,
-          player_id: event.player_id.value,
-          first_resource: event.first_resource.to_s,
+          version:         event.version,
+          player_id:       event.player_id.value,
+          first_resource:  event.first_resource.to_s,
           second_resource: event.second_resource.to_s,
         }
       when PlayerTradeProposed
         {
-          version: event.version,
+          version:   event.version,
           player_id: event.player_id.value,
-          partner_player_id: event.partner_player_id.value,
-          offered: event.offered.to_json_payload,
+          offered:   event.offered.to_json_payload,
           requested: event.requested.to_json_payload,
         }
       when PlayerTradeAccepted
         {
-          version: event.version,
-          player_id: event.player_id.value,
+          version:           event.version,
+          player_id:         event.player_id.value,
           partner_player_id: event.partner_player_id.value,
         }
       when PlayerTradeRejected
         {
-          version: event.version,
-          player_id: event.player_id.value,
+          version:           event.version,
+          player_id:         event.player_id.value,
           partner_player_id: event.partner_player_id.value,
+        }
+      when PlayerTradeCancelled
+        {
+          version:   event.version,
+          player_id: event.player_id.value,
         }
       when PlayerTradeCompleted
         {
-          version: event.version,
-          player_id: event.player_id.value,
+          version:           event.version,
+          player_id:         event.player_id.value,
           partner_player_id: event.partner_player_id.value,
-          offered: event.offered.to_json_payload,
-          requested: event.requested.to_json_payload,
+          offered:           event.offered.to_json_payload,
+          requested:         event.requested.to_json_payload,
         }
       when BankTradeCompleted
         {
-          version: event.version,
-          player_id: event.player_id.value,
-          offered_resource: event.offered_resource.to_s,
+          version:            event.version,
+          player_id:          event.player_id.value,
+          offered_resource:   event.offered_resource.to_s,
           requested_resource: event.requested_resource.to_s,
         }
       when DiceRolled
@@ -741,30 +807,30 @@ module Katan::Engine::Application
           version: event.version,
           die_one: event.die_one,
           die_two: event.die_two,
-          total: event.total,
+          total:   event.total,
         }
       when RobberDiscarded
         {
-          version: event.version,
+          version:   event.version,
           player_id: event.player_id.value,
           discarded: event.discarded.to_json_payload,
         }
       when RobberMoved
         {
-          version: event.version,
+          version:   event.version,
           player_id: event.player_id.value,
-          tile_id: event.tile_id.value,
+          tile_id:   event.tile_id.value,
         }
       when RobberStolen
         {
-          version: event.version,
-          player_id: event.player_id.value,
+          version:          event.version,
+          player_id:        event.player_id.value,
           victim_player_id: event.victim_player_id.value,
-          resource: event.resource.to_s,
+          resource:         event.resource.to_s,
         }
       when TurnEnded
         {
-          version: event.version,
+          version:   event.version,
           player_id: event.player_id.value,
         }
       when GameStarted
@@ -786,6 +852,39 @@ module Katan::Engine::Application
         payload_json: payload_json,
         message: message
       )
+
+      if list = @clients[lobby_id]?
+        event_json = {
+          type:    "game_log",
+          message: message,
+        }.to_json
+        list.each do |client|
+          client.send_json(event_json)
+        end
+      end
+    end
+
+    private def serialize_pending_player_trade(pending_trade : PendingPlayerTrade?, viewer_player_id : String?)
+      return nil unless pending_trade
+
+      viewer_response = viewer_player_id ? pending_trade.response_for(PlayerId.new(viewer_player_id)).try(&.to_s) : nil
+
+      {
+        player_id:           pending_trade.player_id.value,
+        offered:             pending_trade.offered.to_json_payload,
+        requested:           pending_trade.requested.to_json_payload,
+        responses:           pending_trade.responses.keys.sort_by(&.value).map { |player_id|
+          {
+            player_id: player_id.value,
+            status:    pending_trade.responses[player_id].to_s,
+          }
+        },
+        accepted_player_ids: pending_trade.accepted_player_ids.map(&.value),
+        rejected_player_ids: pending_trade.rejected_player_ids.map(&.value),
+        viewer_response:     viewer_response,
+        can_respond:         viewer_player_id ? viewer_player_id != pending_trade.player_id.value : false,
+        can_finalize:        viewer_player_id == pending_trade.player_id.value && !pending_trade.accepted_player_ids.empty?,
+      }
     end
 
     private def next_version(game_state : GameState) : Int32

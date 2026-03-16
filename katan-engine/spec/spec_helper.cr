@@ -40,7 +40,7 @@ def find_simple_road_path(
   topology : BoardTopology,
   length : Int32,
   forbidden_edge_ids : Array(EdgeId) = [] of EdgeId,
-  forbidden_vertex_ids : Array(VertexId) = [] of VertexId
+  forbidden_vertex_ids : Array(VertexId) = [] of VertexId,
 ) : NamedTuple(start_vertex_id: VertexId, edge_ids: Array(EdgeId))
   topology.vertices.keys.sort_by(&.value).each do |start_vertex_id|
     next if forbidden_vertex_ids.includes?(start_vertex_id)
@@ -59,7 +59,7 @@ def find_simple_road_path_from_vertex(
   remaining_length : Int32,
   forbidden_edge_ids : Array(EdgeId),
   forbidden_vertex_ids : Array(VertexId),
-  used_edge_ids : Array(EdgeId)
+  used_edge_ids : Array(EdgeId),
 ) : Array(EdgeId)?
   return [] of EdgeId if remaining_length.zero?
 

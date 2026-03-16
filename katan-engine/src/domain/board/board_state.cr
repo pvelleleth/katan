@@ -36,7 +36,7 @@ class BoardState
     @robber_tile_id : TileId,
     @harbors : Array(HarborAssignment) = [] of HarborAssignment,
     @buildings : Hash(VertexId, Building) = {} of VertexId => Building,
-    @roads : Hash(EdgeId, Road) = {} of EdgeId => Road
+    @roads : Hash(EdgeId, Road) = {} of EdgeId => Road,
   )
   end
 

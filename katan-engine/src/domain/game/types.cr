@@ -64,11 +64,11 @@ struct ResourcePile
 
   def to_json_payload
     {
-      wood: @wood,
+      wood:  @wood,
       brick: @brick,
       sheep: @sheep,
       wheat: @wheat,
-      ore: @ore,
+      ore:   @ore,
       total: total,
     }
   end
@@ -81,6 +81,7 @@ end
 
 struct PlayerId
   getter value : String
+
   def initialize(@value : String); end
 
   def_equals_and_hash @value

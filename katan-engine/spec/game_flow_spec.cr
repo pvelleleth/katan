@@ -20,8 +20,7 @@ class RecordingGameEventStore < Katan::Engine::Infrastructure::Persistence::Game
     turn_number: Int32?,
     phase: String?,
     payload_json: String,
-    message: String?
-  )
+    message: String?)
   getter snapshots = [] of NamedTuple(lobby_code: String, snapshot_json: String, snapshot_version: Int32)
 
   def update_game_settings(lobby_code : String, settings_json : String) : Nil
@@ -35,16 +34,16 @@ class RecordingGameEventStore < Katan::Engine::Infrastructure::Persistence::Game
     turn_number : Int32? = nil,
     phase : String? = nil,
     payload_json : String = "{}",
-    message : String? = nil
+    message : String? = nil,
   ) : Nil
     @events << {
-      lobby_code: lobby_code,
-      event_type: event_type,
+      lobby_code:      lobby_code,
+      event_type:      event_type,
       actor_player_id: actor_player_id,
-      turn_number: turn_number,
-      phase: phase,
-      payload_json: payload_json,
-      message: message,
+      turn_number:     turn_number,
+      phase:           phase,
+      payload_json:    payload_json,
+      message:         message,
     }
   end
 
@@ -231,5 +230,89 @@ describe Katan::Engine::Application::LobbyManager do
     store.events.map(&.[:event_type]).last.should eq("robber_discarded")
     game_state.turn.phase.should eq(TurnPhase::MoveRobber)
     game_state.player!(PlayerId.new(other_player_id)).hand.total.should eq(4)
+  end
+
+  it "persists broadcast trade responses and finalizes the chosen trade partner" do
+    store = RecordingGameEventStore.new
+    manager = Katan::Engine::Application::LobbyManager.new(store, FixedDiceRoller.new([] of DiceRoll))
+    first_client = Katan::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    first_client.lobby_id = "TRADE123"
+    second_client = Katan::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    second_client.lobby_id = "TRADE123"
+    third_client = Katan::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    third_client.lobby_id = "TRADE123"
+
+    manager.handle_join("TRADE123", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("TRADE123", "player-2", "Bob", second_client)
+    manager.handle_join("TRADE123", "player-3", "Cara", third_client)
+
+    manager.start_game("TRADE123")
+    complete_setup_through_manager!(manager, "TRADE123")
+
+    game_state = manager.games["TRADE123"]
+    proposer_id = game_state.turn.current_player_id.value
+    responder_ids = (game_state.player_order - [game_state.turn.current_player_id]).map(&.value)
+    accepting_player_id = responder_ids[0]
+    rejecting_player_id = responder_ids[1]
+
+    game_state.player!(PlayerId.new(proposer_id)).hand.wood = 2
+    game_state.player!(PlayerId.new(proposer_id)).hand.brick = 1
+    game_state.player!(PlayerId.new(accepting_player_id)).hand.sheep = 1
+    game_state.player!(PlayerId.new(accepting_player_id)).hand.wheat = 2
+    game_state.player!(PlayerId.new(rejecting_player_id)).hand.sheep = 1
+    game_state.player!(PlayerId.new(rejecting_player_id)).hand.wheat = 2
+    game_state.turn.phase = TurnPhase::Main
+
+    offered = ResourcePile.new(2, 1, 0, 0, 0)
+    requested = ResourcePile.new(0, 0, 1, 2, 0)
+
+    manager.propose_player_trade("TRADE123", proposer_id, offered, requested)
+    manager.accept_player_trade("TRADE123", accepting_player_id)
+    manager.reject_player_trade("TRADE123", rejecting_player_id)
+
+    pending_snapshot = JSON.parse(store.snapshots.last[:snapshot_json])["turn"]["pending_player_trade"]
+    pending_snapshot["accepted_player_ids"].as_a.map(&.as_s).should eq([accepting_player_id])
+    pending_snapshot["rejected_player_ids"].as_a.map(&.as_s).should eq([rejecting_player_id])
+
+    proposer = game_state.player!(PlayerId.new(proposer_id))
+    accepting_player = game_state.player!(PlayerId.new(accepting_player_id))
+    rejecting_player = game_state.player!(PlayerId.new(rejecting_player_id))
+    proposer_before = {
+      wood:  proposer.hand.wood,
+      brick: proposer.hand.brick,
+      sheep: proposer.hand.sheep,
+      wheat: proposer.hand.wheat,
+    }
+    accepting_before = {
+      wood:  accepting_player.hand.wood,
+      brick: accepting_player.hand.brick,
+      sheep: accepting_player.hand.sheep,
+      wheat: accepting_player.hand.wheat,
+    }
+    rejecting_before = {
+      sheep: rejecting_player.hand.sheep,
+      wheat: rejecting_player.hand.wheat,
+    }
+
+    manager.finalize_player_trade("TRADE123", proposer_id, accepting_player_id)
+
+    store.events.last(4).map(&.[:event_type]).should eq([
+      "player_trade_proposed",
+      "player_trade_accepted",
+      "player_trade_rejected",
+      "player_trade_completed",
+    ])
+
+    game_state.pending_player_trade.should be_nil
+    proposer.hand.wood.should eq(proposer_before[:wood] - 2)
+    proposer.hand.brick.should eq(proposer_before[:brick] - 1)
+    proposer.hand.sheep.should eq(proposer_before[:sheep] + 1)
+    proposer.hand.wheat.should eq(proposer_before[:wheat] + 2)
+    accepting_player.hand.wood.should eq(accepting_before[:wood] + 2)
+    accepting_player.hand.brick.should eq(accepting_before[:brick] + 1)
+    accepting_player.hand.sheep.should eq(accepting_before[:sheep] - 1)
+    accepting_player.hand.wheat.should eq(accepting_before[:wheat] - 2)
+    rejecting_player.hand.sheep.should eq(rejecting_before[:sheep])
+    rejecting_player.hand.wheat.should eq(rejecting_before[:wheat])
   end
 end

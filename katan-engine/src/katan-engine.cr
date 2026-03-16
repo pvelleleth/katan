@@ -36,7 +36,7 @@ module Katan::Engine
     # Initialize generic HTTP server
     server = HTTP::Server.new([
       HTTP::LogHandler.new,
-      ws_handler
+      ws_handler,
     ])
 
     port = 8080

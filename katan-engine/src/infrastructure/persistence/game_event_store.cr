@@ -11,7 +11,7 @@ module Katan::Engine::Infrastructure::Persistence
       turn_number : Int32? = nil,
       phase : String? = nil,
       payload_json : String = "{}",
-      message : String? = nil
+      message : String? = nil,
     ) : Nil
 
     abstract def save_game_snapshot(lobby_code : String, snapshot_json : String, snapshot_version : Int32) : Nil
@@ -28,7 +28,7 @@ module Katan::Engine::Infrastructure::Persistence
       turn_number : Int32? = nil,
       phase : String? = nil,
       payload_json : String = "{}",
-      message : String? = nil
+      message : String? = nil,
     ) : Nil
     end
 

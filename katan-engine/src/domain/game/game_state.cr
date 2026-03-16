@@ -168,14 +168,42 @@ class TurnState
   end
 end
 
+enum PlayerTradeResponseStatus
+  Accepted
+  Rejected
+end
+
 class PendingPlayerTrade
   getter player_id : PlayerId
-  getter partner_player_id : PlayerId
   getter offered : ResourcePile
   getter requested : ResourcePile
-  property accepted : Bool
+  getter responses : Hash(PlayerId, PlayerTradeResponseStatus)
 
-  def initialize(@player_id : PlayerId, @partner_player_id : PlayerId, @offered : ResourcePile, @requested : ResourcePile, @accepted : Bool = false)
+  def initialize(@player_id : PlayerId, @offered : ResourcePile, @requested : ResourcePile, @responses = {} of PlayerId => PlayerTradeResponseStatus)
+  end
+
+  def set_response!(player_id : PlayerId, status : PlayerTradeResponseStatus) : Nil
+    @responses[player_id] = status
+  end
+
+  def response_for(player_id : PlayerId) : PlayerTradeResponseStatus?
+    @responses[player_id]?
+  end
+
+  def accepted_by?(player_id : PlayerId) : Bool
+    response_for(player_id).try(&.accepted?) || false
+  end
+
+  def accepted_player_ids : Array(PlayerId)
+    @responses.compact_map do |target_player_id, status|
+      status.accepted? ? target_player_id : nil
+    end
+  end
+
+  def rejected_player_ids : Array(PlayerId)
+    @responses.compact_map do |target_player_id, status|
+      status.rejected? ? target_player_id : nil
+    end
   end
 end
 
@@ -213,7 +241,7 @@ class GameState
     @topology : BoardTopology,
     @players : Hash(PlayerId, PlayerState),
     @settings : Hash(String, JSON::Any),
-    @rng : Random = Random.new
+    @rng : Random = Random.new,
   )
     @version = 0
     @last_roll = nil
@@ -230,7 +258,7 @@ class GameState
     @player_order = @players.keys.shuffle(random: @rng)
     board_setup = BoardSetupGenerator.generate(@topology, @rng)
     @board = BoardState.new(
-      tile_states: board_setup.tile_setups.map { |tile_setup| {tile_setup.tile_id, TileState.new(tile_setup.resource, tile_setup.token) } }.to_h,
+      tile_states: board_setup.tile_setups.map { |tile_setup| {tile_setup.tile_id, TileState.new(tile_setup.resource, tile_setup.token)} }.to_h,
       robber_tile_id: board_setup.robber_tile_id,
       harbors: board_setup.harbors,
       buildings: {} of VertexId => Building,
@@ -241,7 +269,6 @@ class GameState
       number: 1,
       phase: TurnPhase::Setup1Settlement
     )
-    
   end
 
   def player!(id : PlayerId) : PlayerState

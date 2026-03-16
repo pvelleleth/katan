@@ -81,11 +81,11 @@ end
 # Standard Catan: 19 of each resource, 25 dev cards (14 Knight, 5 VP, 2 Road Building, 2 Year of Plenty, 2 Monopoly)
 RESOURCE_SUPPLY = 19
 DEV_CARD_COUNTS = {
-  DevCard::Knight         => 14,
-  DevCard::VictoryPoint   => 5,
-  DevCard::RoadBuilding   => 2,
-  DevCard::YearOfPlenty   => 2,
-  DevCard::Monopoly       => 2,
+  DevCard::Knight       => 14,
+  DevCard::VictoryPoint => 5,
+  DevCard::RoadBuilding => 2,
+  DevCard::YearOfPlenty => 2,
+  DevCard::Monopoly     => 2,
 }
 
 # The game's central resource and dev card supply. One per game.
@@ -103,7 +103,7 @@ class Bank
     @victory_point = DEV_CARD_COUNTS[DevCard::VictoryPoint],
     @road_building = DEV_CARD_COUNTS[DevCard::RoadBuilding],
     @year_of_plenty = DEV_CARD_COUNTS[DevCard::YearOfPlenty],
-    @monopoly = DEV_CARD_COUNTS[DevCard::Monopoly]
+    @monopoly = DEV_CARD_COUNTS[DevCard::Monopoly],
   )
     @resources = resources || ResourcePile.new(
       RESOURCE_SUPPLY, RESOURCE_SUPPLY, RESOURCE_SUPPLY, RESOURCE_SUPPLY, RESOURCE_SUPPLY
@@ -190,11 +190,11 @@ class Bank
   def to_json_payload
     {
       resources: {
-        wood:   @resources.wood,
-        brick:  @resources.brick,
-        sheep:  @resources.sheep,
-        wheat:  @resources.wheat,
-        ore:    @resources.ore,
+        wood:  @resources.wood,
+        brick: @resources.brick,
+        sheep: @resources.sheep,
+        wheat: @resources.wheat,
+        ore:   @resources.ore,
       },
       dev_cards: {
         knight:         @knight,

@@ -91,7 +91,7 @@ module Katan::Engine::Transport::WebSocket
               end
             end
           end
-        when "start_game", "place_settlement", "place_road", "place_city", "buy_development_card", "play_knight", "play_road_building", "play_monopoly", "play_year_of_plenty", "trade_with_player", "propose_player_trade", "accept_player_trade", "reject_player_trade", "trade_with_bank", "trade_with_harbor", "roll_dice", "discard_robber", "move_robber", "robber_steal", "end_turn", "game_action"
+        when "start_game", "place_settlement", "place_road", "place_city", "buy_development_card", "play_knight", "play_road_building", "play_monopoly", "play_year_of_plenty", "trade_with_player", "propose_player_trade", "accept_player_trade", "reject_player_trade", "cancel_player_trade", "finalize_player_trade", "trade_with_bank", "trade_with_harbor", "roll_dice", "discard_robber", "move_robber", "robber_steal", "end_turn", "game_action"
           handle_gameplay_action(client, lid, incoming)
         when "ready"
           if payload = incoming.payload
@@ -178,10 +178,9 @@ module Katan::Engine::Transport::WebSocket
         return unless payload = incoming.payload
         return unless player_id = client.player_id
 
-        partner_player_id = payload["partner_player_id"]?.try(&.as_s?)
         offered = parse_resource_pile(payload["offered"]?)
         requested = parse_resource_pile(payload["requested"]?)
-        @lobby_manager.propose_player_trade(lobby_id, player_id, partner_player_id, offered, requested) if partner_player_id && offered && requested
+        @lobby_manager.propose_player_trade(lobby_id, player_id, offered, requested) if offered && requested
       when "accept_player_trade"
         return unless player_id = client.player_id
 
@@ -190,6 +189,16 @@ module Katan::Engine::Transport::WebSocket
         return unless player_id = client.player_id
 
         @lobby_manager.reject_player_trade(lobby_id, player_id)
+      when "cancel_player_trade"
+        return unless player_id = client.player_id
+
+        @lobby_manager.cancel_player_trade(lobby_id, player_id)
+      when "finalize_player_trade"
+        return unless payload = incoming.payload
+        return unless player_id = client.player_id
+
+        partner_player_id = payload["partner_player_id"]?.try(&.as_s?)
+        @lobby_manager.finalize_player_trade(lobby_id, player_id, partner_player_id) if partner_player_id
       when "trade_with_bank", "trade_with_harbor"
         return unless payload = incoming.payload
         return unless player_id = client.player_id
@@ -271,14 +280,18 @@ module Katan::Engine::Transport::WebSocket
         second_resource = parse_resource(second_resource_name)
         @lobby_manager.play_year_of_plenty(lobby_id, player_id, first_resource, second_resource) if first_resource && second_resource
       when "trade_with_player", "propose_player_trade"
-        partner_player_id = payload["partner_player_id"]?.try(&.as_s?)
         offered = parse_resource_pile(payload["offered"]?)
         requested = parse_resource_pile(payload["requested"]?)
-        @lobby_manager.propose_player_trade(lobby_id, player_id, partner_player_id, offered, requested) if partner_player_id && offered && requested
+        @lobby_manager.propose_player_trade(lobby_id, player_id, offered, requested) if offered && requested
       when "accept_player_trade"
         @lobby_manager.accept_player_trade(lobby_id, player_id)
       when "reject_player_trade"
         @lobby_manager.reject_player_trade(lobby_id, player_id)
+      when "cancel_player_trade"
+        @lobby_manager.cancel_player_trade(lobby_id, player_id)
+      when "finalize_player_trade"
+        partner_player_id = payload["partner_player_id"]?.try(&.as_s?)
+        @lobby_manager.finalize_player_trade(lobby_id, player_id, partner_player_id) if partner_player_id
       when "trade_with_bank", "trade_with_harbor"
         offered_resource_name = payload["offered_resource"]?.try(&.as_s?)
         requested_resource_name = payload["requested_resource"]?.try(&.as_s?)

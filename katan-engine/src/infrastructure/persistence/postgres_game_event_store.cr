@@ -68,7 +68,7 @@ module Katan::Engine::Infrastructure::Persistence
       turn_number : Int32? = nil,
       phase : String? = nil,
       payload_json : String = "{}",
-      message : String? = nil
+      message : String? = nil,
     ) : Nil
       result = @db.exec(
         INSERT_EVENT_SQL,

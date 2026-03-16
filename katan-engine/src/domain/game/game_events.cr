@@ -88,11 +88,10 @@ end
 
 class PlayerTradeProposed < GameEvent
   getter player_id : PlayerId
-  getter partner_player_id : PlayerId
   getter offered : ResourcePile
   getter requested : ResourcePile
 
-  def initialize(@version : Int32, @player_id : PlayerId, @partner_player_id : PlayerId, @offered : ResourcePile, @requested : ResourcePile)
+  def initialize(@version : Int32, @player_id : PlayerId, @offered : ResourcePile, @requested : ResourcePile)
     super(@version)
   end
 end
@@ -111,6 +110,14 @@ class PlayerTradeRejected < GameEvent
   getter partner_player_id : PlayerId
 
   def initialize(@version : Int32, @player_id : PlayerId, @partner_player_id : PlayerId)
+    super(@version)
+  end
+end
+
+class PlayerTradeCancelled < GameEvent
+  getter player_id : PlayerId
+
+  def initialize(@version : Int32, @player_id : PlayerId)
     super(@version)
   end
 end
@@ -140,8 +147,9 @@ class DiceRolled < GameEvent
   getter die_one : Int32
   getter die_two : Int32
   getter total : Int32
+  getter resources_granted : Hash(String, Hash(String, Int32))
 
-  def initialize(@version : Int32, @die_one : Int32, @die_two : Int32)
+  def initialize(@version : Int32, @die_one : Int32, @die_two : Int32, @resources_granted : Hash(String, Hash(String, Int32)) = Hash(String, Hash(String, Int32)).new)
     super(@version)
     @total = @die_one + @die_two
   end

@@ -5,6 +5,7 @@ alias GraphEdgeKey = Tuple(GraphPoint, GraphPoint)
 
 struct TileId
   getter value : String
+
   def initialize(@value : String); end
 
   def_equals_and_hash @value
@@ -16,6 +17,7 @@ end
 
 struct VertexId
   getter value : String
+
   def initialize(@value : String); end
 
   def_equals_and_hash @value
@@ -27,6 +29,7 @@ end
 
 struct EdgeId
   getter value : String
+
   def initialize(@value : String); end
 
   def_equals_and_hash @value
@@ -69,6 +72,7 @@ end
 
 struct HarborSlotId
   getter value : String
+
   def initialize(@value : String); end
 
   def_equals_and_hash @value
@@ -205,12 +209,12 @@ class BoardTopology
       harbor_slots: harbor_slots
     )
   end
-  
+
   def initialize(
     @tiles : Hash(TileId, TileTopology),
     @vertices : Hash(VertexId, VertexTopology),
     @edges : Hash(EdgeId, EdgeTopology),
-    @harbor_slots : Hash(HarborSlotId, HarborSlotTopology) = {} of HarborSlotId => HarborSlotTopology
+    @harbor_slots : Hash(HarborSlotId, HarborSlotTopology) = {} of HarborSlotId => HarborSlotTopology,
   )
   end
 
@@ -255,7 +259,7 @@ class BoardTopology
 
   private def self.build_harbor_slots(
     edge_tile_ids : Hash(GraphEdgeKey, Array(TileId)),
-    vertex_ids_by_point : Hash(GraphPoint, VertexId)
+    vertex_ids_by_point : Hash(GraphPoint, VertexId),
   ) : Hash(HarborSlotId, HarborSlotTopology)
     HARBOR_SLOT_EDGE_POINTS.each_with_index.each_with_object({} of HarborSlotId => HarborSlotTopology) do |(edge_points, harbor_index), hash|
       edge_key = canonical_edge(edge_points[0], edge_points[1])

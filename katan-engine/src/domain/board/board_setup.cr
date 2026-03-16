@@ -35,7 +35,7 @@ class GeneratedBoardSetup
   def initialize(
     @tile_setups : Array(TileSetup),
     @robber_tile_id : TileId,
-    @harbors : Array(HarborAssignment)
+    @harbors : Array(HarborAssignment),
   )
   end
 end
