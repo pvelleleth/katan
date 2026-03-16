@@ -339,16 +339,6 @@ module Katan::Engine::Application
 
       accepted_event = PlayerTradeAccepted.new(next_version(game_state), PlayerId.new(player_id), pending_trade.player_id)
       game_state.apply!(accepted_event)
-      actor_name = game_state.player!(accepted_event.player_id).name
-      partner_name = game_state.player!(accepted_event.partner_player_id).name
-      persist_game_event(
-        lobby_id,
-        game_state,
-        "player_trade_accepted",
-        player_id,
-        serialize_event_payload(accepted_event).to_json,
-        "#{actor_name} is willing to trade with #{partner_name}."
-      )
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to accept player trade for #{lobby_id}: #{ex.message}"
@@ -402,13 +392,15 @@ module Katan::Engine::Application
       game_state.apply!(event)
       actor_name = game_state.player!(event.player_id).name
       partner_name = game_state.player!(event.partner_player_id).name
+      offered_str = format_resource_pile(event.offered)
+      requested_str = format_resource_pile(event.requested)
       persist_game_event(
         lobby_id,
         game_state,
         "player_trade_completed",
         player_id,
         serialize_event_payload(event).to_json,
-        "#{actor_name} traded with #{partner_name}."
+        "#{actor_name} traded #{offered_str} for #{requested_str} with #{partner_name}."
       )
       broadcast_game_state(lobby_id)
     rescue ex
@@ -890,6 +882,12 @@ module Katan::Engine::Application
 
     private def next_version(game_state : GameState) : Int32
       game_state.version + 1
+    end
+
+    private def format_resource_pile(pile : ResourcePile) : String
+      parts = [] of String
+      pile.each_nonzero { |resource, amount| parts << "#{amount} #{resource.to_s.downcase}" }
+      parts.empty? ? "nothing" : parts.join(", ")
     end
 
     private def total_resources(hand : ResourceHand) : Int32
