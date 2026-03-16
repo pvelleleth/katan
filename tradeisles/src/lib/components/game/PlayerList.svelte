@@ -77,9 +77,9 @@
 								<span class="ml-1 text-xs text-wood-light">(You)</span>
 							{/if}
 						</div>
-						<div class="flex items-center gap-1 font-black text-wood-dark">
-							{player.victory_points}
-							<svg class="text-wheat h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+						<div class="flex items-center gap-1.5 font-black text-amber-600">
+							<span class="text-base">{player.victory_points}</span>
+							<svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
 								<path
 									d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
 								/>
@@ -87,20 +87,28 @@
 						</div>
 					</div>
 
-					<div class="grid grid-cols-3 gap-2 text-xs font-semibold text-wood-dark/70">
-						<div class="flex items-center gap-1" title="Resource Cards">
-							<div class="h-3 w-2 rounded-sm bg-wood/40"></div>
-							{player.resource_count}
+					<div class="flex items-center justify-between border-t border-wood/5 pt-2 text-[10px] font-bold">
+						<div class="flex items-center gap-1 text-forest" title="Resource Cards">
+							<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+								<rect x="3" y="4" width="12" height="15" rx="2" />
+								<rect x="8" y="7" width="12" height="15" rx="2" fill="currentColor" fill-opacity="0.1" />
+							</svg>
+							<span>{player.resource_count} <span class="text-[8px] opacity-60 uppercase">Cards</span></span>
 						</div>
-						<div class="flex items-center gap-1" title="Development Cards">
-							<div class="h-3 w-2 rounded-sm bg-ocean/40"></div>
-							{player.development_card_count}
+
+						<div class="flex items-center gap-1 text-ocean" title="Development Cards">
+							<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+								<rect x="5" y="3" width="14" height="18" rx="2" />
+								<path d="M12 7v10M8 12h8" stroke-linecap="round" />
+							</svg>
+							<span>{player.development_card_count} <span class="text-[8px] opacity-60 uppercase">Dev</span></span>
 						</div>
-						<div class="flex items-center gap-1" title="Knights Played">
-							<svg class="h-3 w-3" fill="currentColor" viewBox="0 0 24 24">
+
+						<div class="flex items-center gap-1 text-wood-dark/60" title="Knights Played">
+							<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
 								<path d="M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z" />
 							</svg>
-							{player.knights_played}
+							<span>{player.knights_played} <span class="text-[8px] opacity-60 uppercase">Army</span></span>
 						</div>
 					</div>
 
@@ -113,7 +121,9 @@
 							STEAL
 						</button>
 						<!-- Pulsing indicator to show they can be stolen from -->
-						<div class="pointer-events-none absolute -inset-1 animate-pulse rounded-2xl border-2 border-brick/50"></div>
+						<div
+							class="pointer-events-none absolute -inset-1 animate-pulse rounded-2xl border-2 border-brick/50"
+						></div>
 					{/if}
 				</div>
 			{/each}
@@ -123,16 +133,16 @@
 	<!-- Game Log -->
 	<div class="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-wood/10 bg-white/50 p-4">
 		<h3 class="mb-2 text-sm font-bold tracking-wider text-wood-light uppercase">Game Log</h3>
-		<div class="flex-1 overflow-y-auto text-sm text-wood-dark/80 flex flex-col gap-1">
+		<div class="flex flex-1 flex-col gap-1 overflow-y-auto text-sm text-wood-dark/80">
 			{#each gameLog as log}
 				<div class="rounded bg-white/60 px-2 py-1 shadow-sm">
-					<span class="text-[10px] text-wood-light mr-1">
+					<span class="mr-1 text-[10px] text-wood-light">
 						{new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
 					</span>
 					{log.message}
 				</div>
 			{/each}
-			<div class="mt-2 text-xs italic text-wood-light">
+			<div class="mt-2 text-xs text-wood-light italic">
 				It is {gamePlayers.find((p: any) => p.id === currentPlayerId)?.name}'s turn.
 			</div>
 		</div>

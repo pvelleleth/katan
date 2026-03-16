@@ -38,7 +38,12 @@
 		color: string;
 		accent: string;
 	}[] = [
-		{ id: 'knight', detail: 'Move the robber', color: 'bg-slate-700 text-white', accent: 'ring-slate-500/40' },
+		{
+			id: 'knight',
+			detail: 'Move the robber',
+			color: 'bg-slate-700 text-white',
+			accent: 'ring-slate-500/40'
+		},
 		{
 			id: 'victory_point',
 			detail: 'Counts toward your score',
@@ -262,12 +267,6 @@
 <div class="flex flex-col gap-4">
 	<div class="flex flex-wrap items-start justify-between gap-4">
 		<div class="flex min-w-0 flex-1 flex-wrap items-end gap-4">
-			<div class="mr-2 flex flex-col pb-2">
-				<span class="text-sm font-black text-wood-dark">HAND</span>
-				<span class="text-xs font-bold text-wood-light">
-					{myPlayer?.resource_count || 0} resources, {myPlayer?.development_card_count || 0} dev cards
-				</span>
-			</div>
 			{#each resources as res}
 				{@const count = hand[res.id] || 0}
 				<div
@@ -349,7 +348,8 @@
 							</div>
 							<button
 								on:click={() => toggleDiscard(res.id, 1)}
-								disabled={discardSelection[res.id] === count || currentDiscardTotal >= discardTarget}
+								disabled={discardSelection[res.id] === count ||
+									currentDiscardTotal >= discardTarget}
 								class="flex h-8 w-8 items-center justify-center rounded-full bg-forest text-white shadow-md transition-transform hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
 							>
 								+
@@ -367,15 +367,12 @@
 
 			{#if ownedDevCardPiles.length > 0}
 				<div class="ml-2 flex flex-wrap items-end gap-4">
-					<div class="mr-2 flex flex-col pb-2">
-						<span class="text-sm font-black text-wood-dark">DEV</span>
-						<span class="text-xs font-bold text-wood-light">Click a card to use it</span>
-					</div>
 					{#each ownedDevCardPiles as card}
 						<button
 							type="button"
 							on:click={() => toggleDevCardSelection(card.id)}
-							class="relative h-24 rounded-xl text-left transition-all duration-300 {selectedDevCard === card.id
+							class="relative h-24 rounded-xl text-left transition-all duration-300 {selectedDevCard ===
+							card.id
 								? `scale-[1.02] ring-4 ${card.accent}`
 								: ''}"
 							style="width: {64 + Math.max(0, card.totalCount - 1) * 14}px"
@@ -383,7 +380,10 @@
 							{#each Array(card.totalCount) as _, i (card.id + '-' + i)}
 								<div
 									in:fly={{ y: -150, x: 0, duration: 600, easing: quintOut }}
-									class="absolute bottom-0 flex h-24 w-16 flex-col items-center justify-between rounded-xl border-2 border-white/40 p-2 shadow-md transition-transform hover:-translate-y-2 {card.color} {i >= card.playableCount ? 'brightness-90 saturate-75' : ''}"
+									class="absolute bottom-0 flex h-24 w-16 flex-col items-center justify-between rounded-xl border-2 border-white/40 p-2 shadow-md transition-transform hover:-translate-y-2 {card.color} {i >=
+									card.playableCount
+										? 'brightness-90 saturate-75'
+										: ''}"
 									style="left: {i * 14}px; z-index: {i};"
 								>
 									<span class="text-[9px] font-bold tracking-wider uppercase opacity-90">
@@ -398,13 +398,19 @@
 													d="M15 4a3 3 0 10-6 0c0 1.1.6 2.1 1.5 2.6L7 12v8h10v-3h-2v-2h2v-5l-3.5-3.4c.9-.5 1.5-1.5 1.5-2.6z"
 												/>
 											{:else if card.id === 'victory_point'}
-												<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+												<path
+													d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+												/>
 											{:else if card.id === 'road_building'}
 												<path d="M3 17h4l2-3h6l2 3h4l-7-10h-4L3 17zm8-6h2l1.4 2h-4.8L11 11z" />
 											{:else if card.id === 'year_of_plenty'}
-												<path d="M12 3l7 4v5c0 5-3.4 8.9-7 10-3.6-1.1-7-5-7-10V7l7-4zm0 4.5L9.5 10 12 12.5 14.5 10 12 7.5zm0 6l-2.5-2.5L7 13.5l5 2.5 5-2.5-2.5-2.5L12 13.5z" />
+												<path
+													d="M12 3l7 4v5c0 5-3.4 8.9-7 10-3.6-1.1-7-5-7-10V7l7-4zm0 4.5L9.5 10 12 12.5 14.5 10 12 7.5zm0 6l-2.5-2.5L7 13.5l5 2.5 5-2.5-2.5-2.5L12 13.5z"
+												/>
 											{:else if card.id === 'monopoly'}
-												<path d="M4 20V8l4-4h8l4 4v12H4zm4-2h2v-3H8v3zm0-5h2v-3H8v3zm6 5h2v-3h-2v3zm0-5h2v-3h-2v3z" />
+												<path
+													d="M4 20V8l4-4h8l4 4v12H4zm4-2h2v-3H8v3zm0-5h2v-3H8v3zm6 5h2v-3h-2v3zm0-5h2v-3h-2v3z"
+												/>
 											{/if}
 										</svg>
 									</div>
@@ -421,7 +427,9 @@
 							{/if}
 
 							{#if card.newCount > 0}
-								<div class="absolute -bottom-2 left-0 rounded-full bg-wheat px-2 py-1 text-[10px] font-black text-wood-dark shadow-sm">
+								<div
+									class="bg-wheat absolute -bottom-2 left-0 rounded-full px-2 py-1 text-[10px] font-black text-wood-dark shadow-sm"
+								>
 									New {card.newCount}
 								</div>
 							{/if}
@@ -466,11 +474,6 @@
 					🎲 Roll Dice
 				</button>
 			{:else if phase === 'Main'}
-				<button
-					class="rounded-xl bg-ocean px-5 py-2.5 font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95"
-				>
-					Build
-				</button>
 				<button
 					on:click={() => onTradeClick('player')}
 					disabled={!!pendingTrade}
@@ -523,7 +526,9 @@
 		<div class="rounded-2xl border-2 border-wood/10 bg-white/70 p-4 shadow-sm">
 			<div class="flex flex-wrap items-start justify-between gap-3">
 				<div>
-					<div class="text-sm font-black text-wood-dark">{devCardLabels[selectedDevCardPile.id]}</div>
+					<div class="text-sm font-black text-wood-dark">
+						{devCardLabels[selectedDevCardPile.id]}
+					</div>
 					<div class="text-xs font-semibold text-wood-light">{selectedDevCardPile.detail}</div>
 				</div>
 				<div class="flex flex-wrap gap-2 text-[11px] font-bold">
@@ -531,7 +536,7 @@
 						Ready {selectedDevCardPile.playableCount}
 					</span>
 					{#if selectedDevCardPile.newCount > 0}
-						<span class="rounded-full bg-wheat/20 px-2 py-1 text-wood-dark">
+						<span class="bg-wheat/20 rounded-full px-2 py-1 text-wood-dark">
 							New {selectedDevCardPile.newCount}
 						</span>
 					{/if}
@@ -619,7 +624,8 @@
 						{/each}
 					</div>
 					<div class="flex flex-wrap items-center gap-2">
-						<span class="text-xs font-bold tracking-wider text-emerald-900 uppercase">Selected</span>
+						<span class="text-xs font-bold tracking-wider text-emerald-900 uppercase">Selected</span
+						>
 						{#if yearOfPlentySelection.length === 0}
 							<span class="text-sm font-semibold text-wood-light">Choose 2 resources.</span>
 						{:else}

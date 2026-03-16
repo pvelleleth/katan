@@ -6,9 +6,19 @@
 <svg width="100%" height="100%" viewBox="0 0 100 100" class="drop-shadow-sm">
 	<!-- Dice Body -->
 	<rect x="5" y="5" width="90" height="90" rx="15" fill={color} stroke="#3E2723" stroke-width="2" />
-	
+
 	<!-- Inner Shadow/Highlight for 3D effect -->
-	<rect x="8" y="8" width="84" height="84" rx="12" fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.3" />
+	<rect
+		x="8"
+		y="8"
+		width="84"
+		height="84"
+		rx="12"
+		fill="none"
+		stroke="#ffffff"
+		stroke-width="2"
+		stroke-opacity="0.3"
+	/>
 
 	<!-- Pips -->
 	<g fill="#ffffff">
