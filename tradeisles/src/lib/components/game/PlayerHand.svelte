@@ -244,23 +244,19 @@
 		return (bankResources[resource] || 0) > getYearOfPlentyRequestedCount(resource);
 	}
 
-	function hasValidYearOfPlentySelection() {
-		if (yearOfPlentySelection.length !== 2) {
-			return false;
-		}
-
-		const requestedCounts = yearOfPlentySelection.reduce(
-			(counts, resource) => {
-				counts[resource] += 1;
-				return counts;
-			},
-			{ ...emptyHand }
+	$: yearOfPlentyRequestedCounts = yearOfPlentySelection.reduce(
+		(counts, resource) => {
+			counts[resource] += 1;
+			return counts;
+		},
+		{ ...emptyHand }
+	);
+	$: hasValidYearOfPlentySelection =
+		yearOfPlentySelection.length === 2 &&
+		resourceKeys.every(
+			(resource) => yearOfPlentyRequestedCounts[resource] <= (bankResources[resource] || 0)
 		);
-
-		return resourceKeys.every((resource) => requestedCounts[resource] <= (bankResources[resource] || 0));
-	}
-
-	$: canApplyYearOfPlenty = canPlayDevelopmentCards && hasValidYearOfPlentySelection();
+	$: canApplyYearOfPlenty = canPlayDevelopmentCards && hasValidYearOfPlentySelection;
 </script>
 
 <div class="flex flex-col gap-4">
