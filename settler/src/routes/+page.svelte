@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { authClient } from '$lib/auth-client';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 
 	let isSigningIn = false;
 
@@ -31,6 +32,26 @@
 		name="description"
 		content="Play Settler online with friends. Trade, build, and race to 10 points in fast multiplayer matches."
 	/>
+
+	<!-- Open Graph / Facebook -->
+	<meta property="og:type" content="website" />
+	<meta property="og:url" content={$page.url.href} />
+	<meta property="og:title" content="Settler | Play Online" />
+	<meta
+		property="og:description"
+		content="Play Settler online with friends. Trade, build, and race to 10 points in fast multiplayer matches."
+	/>
+	<meta property="og:image" content="{$page.url.origin}/social-preview.png" />
+
+	<!-- Twitter -->
+	<meta property="twitter:card" content="summary_large_image" />
+	<meta property="twitter:url" content={$page.url.href} />
+	<meta property="twitter:title" content="Settler | Play Online" />
+	<meta
+		property="twitter:description"
+		content="Play Settler online with friends. Trade, build, and race to 10 points in fast multiplayer matches."
+	/>
+	<meta property="twitter:image" content="{$page.url.origin}/social-preview.png" />
 </svelte:head>
 
 <main
