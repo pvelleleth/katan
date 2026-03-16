@@ -1,5 +1,6 @@
 <script lang="ts">
 	import GameBoard from './GameBoard.svelte';
+	import { onDestroy } from 'svelte';
 	import PlayerHand from './PlayerHand.svelte';
 	import PlayerList from './PlayerList.svelte';
 	import Dice from './Dice.svelte';
@@ -26,6 +27,79 @@
 	export let onRejectPlayerTrade: () => void;
 	export let onCancelPlayerTrade: () => void;
 	export let onFinalizePlayerTrade: (partnerPlayerId: string) => void;
+
+	let pendingBoardDevCardAction: 'knight' | 'road_building' | null = null;
+	let roadBuildingSelection: string[] = [];
+
+	function cancelPendingBoardDevCardAction() {
+		pendingBoardDevCardAction = null;
+		roadBuildingSelection = [];
+	}
+
+	function startKnightPlay() {
+		if (pendingBoardDevCardAction === 'knight') {
+			cancelPendingBoardDevCardAction();
+			return;
+		}
+
+		pendingBoardDevCardAction = 'knight';
+		roadBuildingSelection = [];
+	}
+
+	function startRoadBuildingPlay() {
+		if (pendingBoardDevCardAction === 'road_building') {
+			cancelPendingBoardDevCardAction();
+			return;
+		}
+
+		pendingBoardDevCardAction = 'road_building';
+		roadBuildingSelection = [];
+	}
+
+	function handleKnightTileSelect(tileId: string) {
+		sendGameAction('play_knight', { tile_id: tileId });
+		cancelPendingBoardDevCardAction();
+	}
+
+	function handleRoadBuildingEdgeSelect(edgeId: string) {
+		if (pendingBoardDevCardAction !== 'road_building') {
+			return;
+		}
+
+		roadBuildingSelection = [...roadBuildingSelection, edgeId];
+
+		if (roadBuildingSelection.length === 2) {
+			sendGameAction('play_road_building', {
+				first_edge_id: roadBuildingSelection[0],
+				second_edge_id: roadBuildingSelection[1]
+			});
+			cancelPendingBoardDevCardAction();
+		}
+	}
+
+	function confirmSingleRoadBuildingPlacement() {
+		if (roadBuildingSelection.length !== 1) {
+			return;
+		}
+
+		sendGameAction('play_road_building', {
+			first_edge_id: roadBuildingSelection[0]
+		});
+		cancelPendingBoardDevCardAction();
+	}
+
+	$: if (
+		pendingBoardDevCardAction &&
+		(!gameState ||
+			gameState.turn.current_player_id !== playerId ||
+			!['Roll', 'Main'].includes(gameState.turn.phase))
+	) {
+		cancelPendingBoardDevCardAction();
+	}
+
+	onDestroy(() => {
+		cancelPendingBoardDevCardAction();
+	});
 </script>
 
 <div class="flex h-[calc(100vh-48px)] w-full flex-col lg:flex-row">
@@ -37,7 +111,17 @@
 	<!-- Main Area: Game Board -->
 	<main class="relative flex flex-1 flex-col overflow-hidden bg-ocean/5">
 		<div class="flex-1 overflow-auto p-4">
-			<GameBoard board={gameState.board} {gameState} {playerId} {players} {sendGameAction} />
+			<GameBoard
+				board={gameState.board}
+				{gameState}
+				{playerId}
+				{players}
+				{sendGameAction}
+				{pendingBoardDevCardAction}
+				{roadBuildingSelection}
+				onKnightTileSelect={handleKnightTileSelect}
+				onRoadBuildingEdgeSelect={handleRoadBuildingEdgeSelect}
+			/>
 		</div>
 
 		<TradeOfferPopup
@@ -90,7 +174,13 @@
 				{playerId}
 				{sendGameAction}
 				{tradeComposerOpen}
+				{pendingBoardDevCardAction}
+				{roadBuildingSelection}
 				onTradeClick={onOpenTradeComposer}
+				onStartKnightPlay={startKnightPlay}
+				onStartRoadBuildingPlay={startRoadBuildingPlay}
+				onCancelPendingBoardDevCardAction={cancelPendingBoardDevCardAction}
+				onConfirmSingleRoadBuildingPlacement={confirmSingleRoadBuildingPlacement}
 			/>
 		</div>
 	</main>

@@ -608,6 +608,7 @@ module Katan::Engine::Application
           current_player_id:    game_state.turn.current_player_id.value,
           number:               game_state.turn.number,
           phase:                game_state.turn.phase.to_s,
+          dev_card_played_this_turn: game_state.turn.dev_card_played_this_turn,
           pending_player_trade: serialize_pending_player_trade(game_state.pending_player_trade, viewer_player_id),
           pending_robber_discards: game_state.pending_robber_discards.map { |target_player_id, count|
             {

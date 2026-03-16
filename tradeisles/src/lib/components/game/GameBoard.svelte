@@ -1,9 +1,15 @@
 <script lang="ts">
+	import { getLegalRoadBuildingEdges } from './devCards';
+
 	export let board: any;
 	export let gameState: any;
 	export let playerId: string;
 	export let players: any[];
 	export let sendGameAction: (action: string, payload?: any) => void;
+	export let pendingBoardDevCardAction: 'knight' | 'road_building' | null = null;
+	export let roadBuildingSelection: string[] = [];
+	export let onKnightTileSelect: (tileId: string) => void;
+	export let onRoadBuildingEdgeSelect: (edgeId: string) => void;
 
 	// Hexagon dimensions
 	const HEX_SIZE = 60;
@@ -76,9 +82,25 @@
 
 	$: isMyTurn = gameState.turn.current_player_id === playerId;
 	$: phase = gameState.turn.phase;
+	$: myPlayer = players.find((player) => player.id === playerId);
 	$: canPlaceSettlement = isMyTurn && (phase === 'Setup1Settlement' || phase === 'Setup2Settlement' || phase === 'Main');
-	$: canPlaceRoad = isMyTurn && (phase === 'Setup1Road' || phase === 'Setup2Road' || phase === 'Main');
-	$: canMoveRobber = isMyTurn && phase === 'MoveRobber';
+	$: canPlaceRoad =
+		isMyTurn &&
+		(phase === 'Setup1Road' ||
+			phase === 'Setup2Road' ||
+			phase === 'Main' ||
+			pendingBoardDevCardAction === 'road_building');
+	$: canMoveRobber =
+		isMyTurn && (phase === 'MoveRobber' || pendingBoardDevCardAction === 'knight');
+	$: showNormalRoadTargets = canPlaceRoad && pendingBoardDevCardAction !== 'road_building';
+	$: legalRoadBuildingEdgeIds = new Set(
+		getLegalRoadBuildingEdges(
+			pendingBoardDevCardAction === 'road_building' ? board : null,
+			playerId,
+			roadBuildingSelection,
+			myPlayer?.roads_left ?? 0
+		).map((edge) => edge.id)
+	);
 
 	function getPlayerColor(pId: string) {
 		const p = players.find((p) => p.id === pId);
@@ -101,6 +123,12 @@
 	}
 
 	function handleEdgeClick(edgeId: string) {
+		if (pendingBoardDevCardAction === 'road_building') {
+			if (!legalRoadBuildingEdgeIds.has(edgeId)) return;
+			onRoadBuildingEdgeSelect(edgeId);
+			return;
+		}
+
 		if (!canPlaceRoad) return;
 		const isSetup = phase.startsWith('Setup');
 		sendGameAction('place_road', { edge_id: edgeId, free: isSetup });
@@ -111,7 +139,12 @@
 		// Can't move robber to the tile it's already on
 		const currentRobberTile = board.tiles.find((t: any) => t.has_robber);
 		if (currentRobberTile && currentRobberTile.id === tileId) return;
-		
+
+		if (pendingBoardDevCardAction === 'knight') {
+			onKnightTileSelect(tileId);
+			return;
+		}
+
 		sendGameAction('move_robber', { tile_id: tileId });
 	}
 </script>
@@ -479,15 +512,21 @@
 			{#each board.edges as edge}
 				{@const v1 = getVertexCoords(edge.v1)}
 				{@const v2 = getVertexCoords(edge.v2)}
+				{@const isRoadBuildingSelected = roadBuildingSelection.includes(edge.id)}
+				{@const isRoadBuildingCandidate =
+					pendingBoardDevCardAction === 'road_building' && legalRoadBuildingEdgeIds.has(edge.id)}
 				
 				<!-- Interactive hit area for edges -->
-				{#if canPlaceRoad && !edge.road}
+				{#if ((showNormalRoadTargets && !edge.road) || isRoadBuildingCandidate) && !isRoadBuildingSelected}
+					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 					<line
 						x1={v1.x} y1={v1.y}
 						x2={v2.x} y2={v2.y}
 						stroke="transparent"
 						stroke-width="15"
-						class="cursor-pointer hover:stroke-white/50 transition-colors"
+						class="cursor-pointer transition-colors {isRoadBuildingCandidate
+							? 'hover:stroke-wheat/70'
+							: 'hover:stroke-white/50'}"
 						on:click={() => handleEdgeClick(edge.id)}
 					/>
 				{/if}
@@ -511,6 +550,31 @@
 						stroke-linecap="round"
 					/>
 				{/if}
+
+				{#if isRoadBuildingSelected}
+					<line
+						x1={v1.x}
+						y1={v1.y}
+						x2={v2.x}
+						y2={v2.y}
+						stroke="#FBC02D"
+						stroke-width="10"
+						stroke-linecap="round"
+						stroke-dasharray="8 6"
+						class="drop-shadow-md"
+					/>
+				{:else if isRoadBuildingCandidate}
+					<line
+						x1={v1.x}
+						y1={v1.y}
+						x2={v2.x}
+						y2={v2.y}
+						stroke="#FFF8E1"
+						stroke-width="4"
+						stroke-linecap="round"
+						stroke-opacity="0.9"
+					/>
+				{/if}
 			{/each}
 		</g>
 
@@ -521,6 +585,7 @@
 				
 				<!-- Interactive hit area for vertices -->
 				{#if canPlaceSettlement && !vertex.building}
+					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 					<circle
 						cx={x} cy={y}
 						r="12"
