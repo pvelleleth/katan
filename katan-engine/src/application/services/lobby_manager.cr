@@ -339,6 +339,16 @@ module Katan::Engine::Application
 
       accepted_event = PlayerTradeAccepted.new(next_version(game_state), PlayerId.new(player_id), pending_trade.player_id)
       game_state.apply!(accepted_event)
+      actor_name = game_state.player!(accepted_event.player_id).name
+      partner_name = game_state.player!(accepted_event.partner_player_id).name
+      persist_game_event(
+        lobby_id,
+        game_state,
+        "player_trade_accepted",
+        player_id,
+        serialize_event_payload(accepted_event).to_json,
+        "#{actor_name} accepted #{partner_name}'s trade."
+      )
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to accept player trade for #{lobby_id}: #{ex.message}"

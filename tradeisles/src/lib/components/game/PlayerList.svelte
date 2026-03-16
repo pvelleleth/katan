@@ -1,9 +1,14 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+
 	export let gameState: any;
 	export let players: any[]; // From lobby, has colors
 	export let playerId: string;
 	export let gameLog: { message: string; createdAt: string }[] = [];
 	export let sendGameAction: (action: string, payload?: any) => void;
+
+	let gameLogContainer: HTMLDivElement;
+	let previousGameLogLength = 0;
 
 	$: currentPlayerId = gameState.turn.current_player_id;
 	$: playerOrder = gameState.player_order;
@@ -18,7 +23,8 @@
 		const lPlayer = players.find((p: any) => p.id === id);
 		return {
 			...gPlayer,
-			color: lPlayer?.color || 'wood'
+			color: lPlayer?.color || 'wood',
+			isConnected: lPlayer?.isConnected ?? true
 		};
 	});
 
@@ -35,6 +41,19 @@
 		if (!isMyTurn || !isStealPhase || !eligibleVictims.includes(victimId)) return;
 		sendGameAction('robber_steal', { victim_player_id: victimId });
 	}
+
+	$: if (gameLog.length !== previousGameLogLength) {
+		previousGameLogLength = gameLog.length;
+		scrollGameLogToBottom();
+	}
+
+	async function scrollGameLogToBottom() {
+		await tick();
+		gameLogContainer?.scrollTo({
+			top: gameLogContainer.scrollHeight,
+			behavior: 'smooth'
+		});
+	}
 </script>
 
 <div class="flex h-full flex-col gap-6">
@@ -49,7 +68,7 @@
 				<div
 					class="relative flex flex-col gap-2 rounded-2xl border-2 p-3 transition-all {isCurrentTurn
 						? 'border-ocean bg-white shadow-lg'
-						: 'border-wood/10 bg-white/50'}"
+						: 'border-wood/10 bg-white/50'} {player.isConnected ? '' : 'opacity-65'}"
 				>
 					{#if isCurrentTurn}
 						<div
@@ -81,6 +100,15 @@
 									<span class="ml-1 text-xs text-wood-light">(You)</span>
 								{/if}
 							</div>
+							{#if !player.isConnected}
+								<div class="mt-0.5">
+									<span
+										class="rounded-full bg-brick/10 px-2 py-0.5 text-[0.6rem] font-black tracking-wider text-brick uppercase"
+									>
+										Disconnected
+									</span>
+								</div>
+							{/if}
 						</div>
 						<div class="flex items-center gap-1.5">
 							{#if hasLongestRoad}
@@ -217,7 +245,10 @@
 	<!-- Game Log -->
 	<div class="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-wood/10 bg-white/50 p-4">
 		<h3 class="mb-2 text-sm font-bold tracking-wider text-wood-light uppercase">Game Log</h3>
-		<div class="flex flex-1 flex-col gap-1 overflow-y-auto text-sm text-wood-dark/80">
+		<div
+			bind:this={gameLogContainer}
+			class="flex flex-1 flex-col gap-1 overflow-y-auto text-sm text-wood-dark/80"
+		>
 			{#each gameLog as log}
 				<div class="rounded bg-white/60 px-2 py-1 shadow-sm">
 					<span class="mr-1 text-[10px] text-wood-light">

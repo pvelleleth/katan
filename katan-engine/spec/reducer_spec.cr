@@ -470,7 +470,8 @@ describe GameState do
 
     game_state.apply!(DevelopmentCardPurchased.new(1, player.id, DevCard::VictoryPoint))
 
-    player.victory_points.should eq(1)
+    player.victory_points.should eq(0)
+    player.revealed_victory_point_cards.should eq(1)
     player.newly_purchased_dev_cards.victory_point.should eq(1)
   end
 
