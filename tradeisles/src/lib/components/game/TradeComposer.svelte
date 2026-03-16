@@ -1,8 +1,8 @@
 <script lang="ts">
 	import {
 		createEmptyResourcePile,
+		getBankTradeRates,
 		hasAnyResources,
-		inferBankTradeRate,
 		resourceKeys,
 		resourceLabels,
 		type ResourceKey,
@@ -29,7 +29,10 @@
 	$: myPlayer = gameState?.players?.find((player: any) => player.id === playerId);
 	$: hand = myPlayer?.hand ?? createEmptyResourcePile();
 	$: pendingTrade = gameState?.turn?.pending_player_trade ?? null;
-	$: bankRate = inferBankTradeRate(gameState, playerId, bankOfferedResource);
+	$: bankTradeRates = getBankTradeRates(gameState, playerId);
+	$: bankRate = bankTradeRates[bankOfferedResource];
+	$: harborAdvantageResources = resourceKeys.filter((resource) => bankTradeRates[resource] < 4);
+	$: hasHarborAdvantage = harborAdvantageResources.length > 0;
 	$: canSubmitPlayerTrade =
 		hasAnyResources(offered) &&
 		hasAnyResources(requested) &&
@@ -119,6 +122,18 @@
 					class="rounded-2xl border border-brick/20 bg-brick/10 px-4 py-3 text-sm font-semibold text-brick"
 				>
 					Finish or cancel the current player trade before creating another one.
+				</div>
+			{/if}
+
+			{#if hasHarborAdvantage}
+				<div
+					class="rounded-2xl border border-ocean/20 bg-ocean/10 px-4 py-3 text-sm font-semibold text-ocean"
+				>
+					Harbor advantage:
+					{#each harborAdvantageResources as resource, index}
+						<span class="font-black">{resourceLabels[resource]} {bankTradeRates[resource]}:1</span
+						>{index < harborAdvantageResources.length - 1 ? ', ' : ''}
+					{/each}
 				</div>
 			{/if}
 
@@ -219,9 +234,7 @@
 								>
 									<div class="font-bold text-wood-dark">{resourceLabels[resource]}</div>
 									<div class="text-xs font-semibold text-wood-light">
-										Rate {inferBankTradeRate(gameState, playerId, resource)}:1, have {hand[
-											resource
-										] ?? 0}
+										Rate {bankTradeRates[resource]}:1, have {hand[resource] ?? 0}
 									</div>
 								</button>
 							{/each}
@@ -254,8 +267,14 @@
 							<div class="text-sm font-black tracking-wider text-wood-dark uppercase">Summary</div>
 							<p class="mt-2 text-sm font-semibold text-wood-light">
 								Trade {bankRate}
-								{resourceLabels[bankOfferedResource]} for 1 {resourceLabels[bankRequestedResource]}.
+								{resourceLabels[bankOfferedResource]} for 1
+								{resourceLabels[bankRequestedResource]}.
 							</p>
+							{#if bankRate < 4}
+								<p class="mt-2 text-xs font-black tracking-wider text-ocean uppercase">
+									Harbor rate applied
+								</p>
+							{/if}
 						</div>
 						<button
 							on:click={submitBankTrade}

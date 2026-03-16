@@ -12,6 +12,19 @@ export const resourceLabels: Record<ResourceKey, string> = {
 	ore: 'Ore'
 };
 
+const harborResourceByKind: Partial<Record<string, ResourceKey>> = {
+	WoodTwoToOne: 'wood',
+	wood_two_to_one: 'wood',
+	BrickTwoToOne: 'brick',
+	brick_two_to_one: 'brick',
+	SheepTwoToOne: 'sheep',
+	sheep_two_to_one: 'sheep',
+	WheatTwoToOne: 'wheat',
+	wheat_two_to_one: 'wheat',
+	OreTwoToOne: 'ore',
+	ore_two_to_one: 'ore'
+};
+
 export function createEmptyResourcePile(): ResourcePile {
 	return {
 		wood: 0,
@@ -39,43 +52,44 @@ export function inferBankTradeRate(
 	playerId: string,
 	resource: ResourceKey
 ): number {
-	if (!gameState?.board?.harbors || !gameState?.board?.vertices) {
+	const harbors = gameState?.board?.harbors;
+	const vertices = gameState?.board?.vertices;
+
+	if (!harbors || !vertices || !playerId) {
 		return 4;
 	}
 
 	const ownedVertexIds = new Set(
-		gameState.board.vertices
+		vertices
 			.filter((vertex: any) => vertex.building?.player_id === playerId)
 			.map((vertex: any) => vertex.id)
 	);
 
 	let bestRate = 4;
 
-	for (const harbor of gameState.board.harbors) {
+	for (const harbor of harbors) {
 		const claimed = harbor.vertex_ids?.some((vertexId: string) => ownedVertexIds.has(vertexId));
 		if (!claimed) continue;
 
-		switch (harbor.kind) {
-			case 'ThreeToOne':
-				bestRate = Math.min(bestRate, 3);
-				break;
-			case 'WoodTwoToOne':
-				if (resource === 'wood') bestRate = Math.min(bestRate, 2);
-				break;
-			case 'BrickTwoToOne':
-				if (resource === 'brick') bestRate = Math.min(bestRate, 2);
-				break;
-			case 'SheepTwoToOne':
-				if (resource === 'sheep') bestRate = Math.min(bestRate, 2);
-				break;
-			case 'WheatTwoToOne':
-				if (resource === 'wheat') bestRate = Math.min(bestRate, 2);
-				break;
-			case 'OreTwoToOne':
-				if (resource === 'ore') bestRate = Math.min(bestRate, 2);
-				break;
+		if (harbor.kind === 'ThreeToOne' || harbor.kind === 'three_to_one') {
+			bestRate = Math.min(bestRate, 3);
+			continue;
+		}
+
+		if (harborResourceByKind[harbor.kind] === resource) {
+			bestRate = Math.min(bestRate, 2);
 		}
 	}
 
 	return bestRate;
+}
+
+export function getBankTradeRates(gameState: any, playerId: string): ResourcePile {
+	return resourceKeys.reduce(
+		(rates, resource) => ({
+			...rates,
+			[resource]: inferBankTradeRate(gameState, playerId, resource)
+		}),
+		createEmptyResourcePile()
+	);
 }
