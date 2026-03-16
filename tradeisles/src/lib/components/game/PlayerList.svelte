@@ -43,6 +43,8 @@
 			{#each gamePlayers as player}
 				{@const isCurrentTurn = player.id === currentPlayerId}
 				{@const isMe = player.id === playerId}
+				{@const hasLongestRoad = player.has_longest_road}
+				{@const hasLargestArmy = player.has_largest_army}
 				<div
 					class="relative flex flex-col gap-2 rounded-2xl border-2 p-3 transition-all {isCurrentTurn
 						? 'border-ocean bg-white shadow-lg'
@@ -71,19 +73,51 @@
 						>
 							<span class="text-sm font-bold">{player.name.charAt(0).toUpperCase()}</span>
 						</div>
-						<div class="flex-1 truncate font-bold text-wood-dark">
-							{player.name}
-							{#if isMe}
-								<span class="ml-1 text-xs text-wood-light">(You)</span>
-							{/if}
+						<div class="min-w-0 flex-1">
+							<div class="truncate font-bold text-wood-dark">
+								{player.name}
+								{#if isMe}
+									<span class="ml-1 text-xs text-wood-light">(You)</span>
+								{/if}
+							</div>
 						</div>
-						<div class="flex items-center gap-1.5 font-black text-amber-600">
+						<div class="flex items-center gap-1.5">
+							{#if hasLongestRoad}
+								<div
+									class="flex h-6 w-6 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-amber-700"
+									title="Longest Road (+2 VP)"
+									aria-label="Longest Road"
+								>
+									<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M4 16l5-5 4 4 7-7" />
+									</svg>
+								</div>
+							{/if}
+
+							{#if hasLargestArmy}
+								<div
+									class="flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-slate-50 text-slate-700"
+									title="Largest Army (+2 VP)"
+									aria-label="Largest Army"
+								>
+									<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											d="M12 3l7 4v5c0 4.3-2.86 8.32-7 9-4.14-.68-7-4.7-7-9V7l7-4z"
+										/>
+									</svg>
+								</div>
+							{/if}
+
+							<div class="flex items-center gap-1.5 font-black text-amber-600">
 							<span class="text-base">{player.victory_points}</span>
 							<svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
 								<path
 									d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
 								/>
 							</svg>
+						</div>
 						</div>
 					</div>
 

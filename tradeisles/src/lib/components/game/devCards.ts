@@ -4,6 +4,7 @@ export type BoardVertex = {
 	id: string;
 	building?: {
 		player_id: string;
+		kind: 'Settlement' | 'City';
 	};
 };
 
@@ -111,15 +112,66 @@ export function canConfirmSingleRoadBuildingPlacement(
 	board: BoardState | null | undefined,
 	playerId: string,
 	selectedEdgeIds: string[],
-	roadsLeft: number
+	roads_left: number
 ) {
 	if (selectedEdgeIds.length !== 1) {
 		return false;
 	}
 
-	if (roadsLeft <= selectedEdgeIds.length) {
+	if (roads_left <= selectedEdgeIds.length) {
 		return true;
 	}
 
 	return getLegalRoadBuildingEdges(board, playerId, selectedEdgeIds).length === 0;
+}
+
+export function getLegalSettlementVertices(
+	board: BoardState | null | undefined,
+	playerId: string,
+	phase: string
+) {
+	if (!board) {
+		return [];
+	}
+
+	return board.vertices.filter((vertex) => {
+		// 1. Must be unoccupied
+		if (vertex.building) {
+			return false;
+		}
+
+		// 2. Distance rule: No buildings on adjacent vertices
+		const incidentEdges = board.edges.filter((edge) => touchesVertex(edge, vertex.id));
+		const neighborIds = incidentEdges.map((edge) => (edge.v1 === vertex.id ? edge.v2 : edge.v1));
+
+		const hasNeighborBuilding = neighborIds.some((neighborId) => {
+			const neighbor = board.vertices.find((v) => v.id === neighborId);
+			return !!neighbor?.building;
+		});
+
+		if (hasNeighborBuilding) {
+			return false;
+		}
+
+		// 3. Connectivity rule: In Main phase, must be connected to player's road
+		if (phase === 'Main') {
+			const isConnected = incidentEdges.some((edge) => edge.road?.player_id === playerId);
+			if (!isConnected) {
+				return false;
+			}
+		}
+
+		return true;
+	});
+}
+
+export function getLegalCityVertices(board: BoardState | null | undefined, playerId: string) {
+	if (!board) {
+		return [];
+	}
+
+	return board.vertices.filter(
+		(vertex) =>
+			vertex.building?.player_id === playerId && vertex.building.kind === 'Settlement'
+	);
 }

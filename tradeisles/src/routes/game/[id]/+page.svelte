@@ -329,26 +329,28 @@
 <main
 	class="relative flex min-h-screen flex-col overflow-hidden bg-parchment-texture font-trebuchet selection:bg-ocean/30"
 >
-	<!-- Navbar -->
-	<header
-		class="sticky top-0 z-50 flex h-12 items-center justify-between border-b border-wood/10 bg-parchment/60 px-4 backdrop-blur-xl lg:px-8"
-	>
-		<a
-			href="/"
-			class="text-xl font-[900] tracking-tight text-wood transition-colors select-none hover:text-wood-dark lg:text-2xl"
+	{#if !gameStarted}
+		<!-- Navbar -->
+		<header
+			class="sticky top-0 z-50 flex h-12 items-center justify-between bg-parchment/60 px-4 backdrop-blur-xl lg:px-8"
 		>
-			TRADEISLES
-		</a>
-
-		<div class="flex items-center gap-6">
-			<button
-				on:click={() => goto('/game')}
-				class="rounded-full border border-wood/20 px-3 py-1 text-xs font-bold text-wood transition-all hover:border-brick/20 hover:text-brick"
+			<a
+				href="/"
+				class="text-xl font-[900] tracking-tight text-wood transition-colors select-none hover:text-wood-dark lg:text-2xl"
 			>
-				Leave {gameStarted ? 'Game' : 'Lobby'}
-			</button>
-		</div>
-	</header>
+				TRADEISLES
+			</a>
+
+			<div class="flex items-center gap-6">
+				<button
+					on:click={() => goto('/game')}
+					class="rounded-full border border-wood/20 px-3 py-1 text-xs font-bold text-wood transition-all hover:border-brick/20 hover:text-brick"
+				>
+					Leave {gameStarted ? 'Game' : 'Lobby'}
+				</button>
+			</div>
+		</header>
+	{/if}
 
 	{#if isConnecting}
 		<div class="flex flex-1 items-center justify-center">
@@ -377,6 +379,7 @@
 			onRejectPlayerTrade={rejectPlayerTrade}
 			onCancelPlayerTrade={cancelPlayerTrade}
 			onFinalizePlayerTrade={finalizePlayerTrade}
+			onLeaveGame={() => goto('/game')}
 		/>
 	{:else}
 		<div class="relative flex min-h-0 flex-1 flex-col items-center justify-center p-6 lg:p-12">

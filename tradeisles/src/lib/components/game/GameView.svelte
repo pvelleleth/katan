@@ -30,8 +30,10 @@
 	export let onRejectPlayerTrade: () => void;
 	export let onCancelPlayerTrade: () => void;
 	export let onFinalizePlayerTrade: (partnerPlayerId: string) => void;
+	export let onLeaveGame: () => void;
 
 	let pendingBoardDevCardAction: 'knight' | 'road_building' | null = null;
+	let pendingBoardBuildAction: 'city' | null = null;
 	let roadBuildingSelection: string[] = [];
 
 	function cancelPendingBoardDevCardAction() {
@@ -39,7 +41,13 @@
 		roadBuildingSelection = [];
 	}
 
+	function cancelPendingBoardBuildAction() {
+		pendingBoardBuildAction = null;
+	}
+
 	function startKnightPlay() {
+		cancelPendingBoardBuildAction();
+
 		if (pendingBoardDevCardAction === 'knight') {
 			cancelPendingBoardDevCardAction();
 			return;
@@ -50,6 +58,8 @@
 	}
 
 	function startRoadBuildingPlay() {
+		cancelPendingBoardBuildAction();
+
 		if (pendingBoardDevCardAction === 'road_building') {
 			cancelPendingBoardDevCardAction();
 			return;
@@ -57,6 +67,22 @@
 
 		pendingBoardDevCardAction = 'road_building';
 		roadBuildingSelection = [];
+	}
+
+	function startCityPlacement() {
+		cancelPendingBoardDevCardAction();
+
+		if (pendingBoardBuildAction === 'city') {
+			cancelPendingBoardBuildAction();
+			return;
+		}
+
+		pendingBoardBuildAction = 'city';
+	}
+
+	function handleCityVertexSelect(vertexId: string) {
+		sendGameAction('place_city', { vertex_id: vertexId });
+		cancelPendingBoardBuildAction();
 	}
 
 	function handleKnightTileSelect(tileId: string) {
@@ -100,20 +126,36 @@
 		cancelPendingBoardDevCardAction();
 	}
 
+	$: if (
+		pendingBoardBuildAction &&
+		(!gameState ||
+			gameState.turn.current_player_id !== playerId ||
+			gameState.turn.phase !== 'Main')
+	) {
+		cancelPendingBoardBuildAction();
+	}
+
 	onDestroy(() => {
 		cancelPendingBoardDevCardAction();
+		cancelPendingBoardBuildAction();
 	});
 </script>
 
-<div class="flex h-[calc(100vh-48px)] w-full flex-col lg:flex-row">
+<div class="flex h-screen w-full flex-col lg:flex-row">
 	<!-- Left Sidebar: Player List & Game Log -->
-	<aside class="flex w-full flex-col border-r border-wood/10 bg-parchment/60 p-4 lg:w-80">
+	<aside class="flex w-full flex-col bg-parchment/60 p-4 lg:w-80">
 		<PlayerList {gameState} {players} {playerId} {gameLog} {sendGameAction} />
 	</aside>
 
 	<!-- Main Area: Game Board -->
-	<main class="relative flex flex-1 flex-col overflow-hidden bg-ocean/5">
-		<div class="flex-1 overflow-auto p-4">
+	<main class="relative flex flex-1 flex-col overflow-hidden">
+		<div class="flex-1 overflow-auto">
+			<button
+				on:click={onLeaveGame}
+				class="absolute top-4 right-4 z-20 rounded-full border border-white/20 bg-black/10 px-3 py-1 text-xs font-bold text-white/50 backdrop-blur-md transition-all hover:bg-black/20 hover:text-white"
+			>
+				Leave Game
+			</button>
 			<GameBoard
 				board={gameState.board}
 				{gameState}
@@ -121,9 +163,11 @@
 				{players}
 				{sendGameAction}
 				{pendingBoardDevCardAction}
+				{pendingBoardBuildAction}
 				{roadBuildingSelection}
 				onKnightTileSelect={handleKnightTileSelect}
 				onRoadBuildingEdgeSelect={handleRoadBuildingEdgeSelect}
+				onCityVertexSelect={handleCityVertexSelect}
 			/>
 		</div>
 
@@ -171,18 +215,21 @@
 		{/if}
 
 		<!-- Bottom Area: Player Hand & Actions -->
-		<div class="border-t border-wood/10 bg-parchment/80 p-4 backdrop-blur-md">
+		<div class="bg-parchment/80 p-4 backdrop-blur-md">
 			<PlayerHand
 				{gameState}
 				{playerId}
 				{sendGameAction}
 				{tradeComposerOpen}
 				{pendingBoardDevCardAction}
+				{pendingBoardBuildAction}
 				{roadBuildingSelection}
 				onTradeClick={onOpenTradeComposer}
 				onStartKnightPlay={startKnightPlay}
 				onStartRoadBuildingPlay={startRoadBuildingPlay}
 				onCancelPendingBoardDevCardAction={cancelPendingBoardDevCardAction}
+				onStartCityPlacement={startCityPlacement}
+				onCancelPendingBoardBuildAction={cancelPendingBoardBuildAction}
 				onConfirmSingleRoadBuildingPlacement={confirmSingleRoadBuildingPlacement}
 			/>
 		</div>

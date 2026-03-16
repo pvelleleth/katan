@@ -13,11 +13,14 @@
 	export let sendGameAction: (action: string, payload?: any) => void;
 	export let tradeComposerOpen = false;
 	export let pendingBoardDevCardAction: 'knight' | 'road_building' | null = null;
+	export let pendingBoardBuildAction: 'city' | null = null;
 	export let roadBuildingSelection: string[] = [];
 	export let onTradeClick: (mode?: 'player' | 'bank') => void;
 	export let onStartKnightPlay: () => void;
 	export let onStartRoadBuildingPlay: () => void;
 	export let onCancelPendingBoardDevCardAction: () => void;
+	export let onStartCityPlacement: () => void;
+	export let onCancelPendingBoardBuildAction: () => void;
 	export let onConfirmSingleRoadBuildingPlacement: () => void;
 
 	type DevCardKey = keyof typeof devCardLabels;
@@ -100,6 +103,12 @@
 		hand.wheat > 0 &&
 		hand.ore > 0 &&
 		devCardsRemaining > 0;
+	$: canBuildCity =
+		isMyTurn &&
+		phase === 'Main' &&
+		hand.wheat >= 2 &&
+		hand.ore >= 3 &&
+		(myPlayer?.cities_left || 0) > 0;
 	$: canConfirmSingleRoadBuilding =
 		pendingBoardDevCardAction === 'road_building' &&
 		canConfirmSingleRoadBuildingPlacement(
@@ -235,6 +244,16 @@
 		if (!canPlayDevelopmentCards || developmentCards.playable.road_building <= 0) return;
 		selectedDevCard = 'road_building';
 		onStartRoadBuildingPlay();
+	}
+
+	function toggleCityPlacement() {
+		if (pendingBoardBuildAction === 'city') {
+			onCancelPendingBoardBuildAction();
+			return;
+		}
+
+		if (!canBuildCity) return;
+		onStartCityPlacement();
 	}
 
 	function getYearOfPlentyRequestedCount(resource: ResourceKey) {
@@ -492,7 +511,14 @@
 					disabled={!canBuyDevelopmentCard}
 					class="rounded-xl bg-purple-600 px-5 py-2.5 font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
 				>
-					Buy Dev Card
+						Buy Dev Card
+					</button>
+				<button
+					on:click={toggleCityPlacement}
+					disabled={!canBuildCity && pendingBoardBuildAction !== 'city'}
+					class="rounded-xl bg-wheat px-5 py-2.5 font-bold text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+				>
+					{pendingBoardBuildAction === 'city' ? 'Cancel City' : 'Build City'}
 				</button>
 				<button
 					on:click={() => sendGameAction('end_turn')}
@@ -521,6 +547,12 @@
 			{/if}
 		</div>
 	</div>
+
+	{#if pendingBoardBuildAction === 'city'}
+		<div class="rounded-2xl border-2 border-wheat/30 bg-wheat/10 px-4 py-3 text-sm font-semibold text-wood-dark shadow-sm">
+			Click one of your settlements on the board to upgrade it to a city.
+		</div>
+	{/if}
 
 	{#if selectedDevCardPile}
 		<div class="rounded-2xl border-2 border-wood/10 bg-white/70 p-4 shadow-sm">

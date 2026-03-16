@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { getLegalRoadBuildingEdges } from './devCards';
+	import {
+		getLegalCityVertices,
+		getLegalRoadBuildingEdges,
+		getLegalSettlementVertices
+	} from './devCards';
 
 	export let board: any;
 	export let gameState: any;
@@ -7,12 +11,14 @@
 	export let players: any[];
 	export let sendGameAction: (action: string, payload?: any) => void;
 	export let pendingBoardDevCardAction: 'knight' | 'road_building' | null = null;
+	export let pendingBoardBuildAction: 'city' | null = null;
 	export let roadBuildingSelection: string[] = [];
 	export let onKnightTileSelect: (tileId: string) => void;
 	export let onRoadBuildingEdgeSelect: (edgeId: string) => void;
+	export let onCityVertexSelect: (vertexId: string) => void;
 
 	// Hexagon dimensions
-	const HEX_SIZE = 60;
+	const HEX_SIZE = 70;
 	const HEX_WIDTH = Math.sqrt(3) * HEX_SIZE;
 	const HEX_HEIGHT = 2 * HEX_SIZE;
 
@@ -83,24 +89,33 @@
 	$: isMyTurn = gameState.turn.current_player_id === playerId;
 	$: phase = gameState.turn.phase;
 	$: myPlayer = players.find((player) => player.id === playerId);
+	$: myGamePlayer = gameState.players.find((p: any) => p.id === playerId);
 	$: canPlaceSettlement =
-		isMyTurn && (phase === 'Setup1Settlement' || phase === 'Setup2Settlement' || phase === 'Main');
+		isMyTurn &&
+		(phase === 'Setup1Settlement' || phase === 'Setup2Settlement' || phase === 'Main') &&
+		(myGamePlayer?.settlements_left ?? 0) > 0;
 	$: canPlaceRoad =
 		isMyTurn &&
 		(phase === 'Setup1Road' ||
 			phase === 'Setup2Road' ||
 			phase === 'Main' ||
-			pendingBoardDevCardAction === 'road_building');
+			pendingBoardDevCardAction === 'road_building') &&
+		(myGamePlayer?.roads_left ?? 0) > 0;
 	$: canMoveRobber = isMyTurn && (phase === 'MoveRobber' || pendingBoardDevCardAction === 'knight');
+	$: canPlaceCity = isMyTurn && phase === 'Main' && pendingBoardBuildAction === 'city';
 	$: showNormalRoadTargets = canPlaceRoad && pendingBoardDevCardAction !== 'road_building';
 	$: legalRoadBuildingEdgeIds = new Set(
 		getLegalRoadBuildingEdges(
 			pendingBoardDevCardAction === 'road_building' ? board : null,
 			playerId,
 			roadBuildingSelection,
-			myPlayer?.roads_left ?? 0
+			myGamePlayer?.roads_left ?? 0
 		).map((edge) => edge.id)
 	);
+	$: legalSettlementVertexIds = new Set(
+		getLegalSettlementVertices(board, playerId, phase).map((v) => v.id)
+	);
+	$: legalCityVertexIds = new Set(getLegalCityVertices(board, playerId).map((v) => v.id));
 
 	function getPlayerColor(pId: string) {
 		const p = players.find((p) => p.id === pId);
@@ -116,6 +131,11 @@
 	}
 
 	function handleVertexClick(vertexId: string) {
+		if (canPlaceCity && legalCityVertexIds.has(vertexId)) {
+			onCityVertexSelect(vertexId);
+			return;
+		}
+
 		if (!canPlaceSettlement) return;
 		// For setup phase, free is true. For main phase, free is false.
 		const isSetup = phase.startsWith('Setup');
@@ -150,13 +170,7 @@
 </script>
 
 <div class="flex h-full w-full items-center justify-center">
-	<svg
-		width="100%"
-		height="100%"
-		viewBox="-300 -300 600 600"
-		preserveAspectRatio="xMidYMid meet"
-		class="drop-shadow-xl"
-	>
+	<svg width="100%" height="100%" viewBox="-320 -320 640 640" preserveAspectRatio="xMidYMid meet">
 		<defs>
 			<!-- Ocean Background Gradient -->
 			<radialGradient id="ocean-bg" cx="50%" cy="50%" r="70%">
@@ -683,7 +697,7 @@
 						x2={v2.x}
 						y2={v2.y}
 						stroke="transparent"
-						stroke-width="15"
+						stroke-width="22"
 						class="cursor-pointer transition-colors {isRoadBuildingCandidate
 							? 'hover:stroke-wheat/70'
 							: 'hover:stroke-white/50'}"
@@ -699,7 +713,7 @@
 						x2={v2.x}
 						y2={v2.y}
 						stroke={getPlayerColor(edge.road.player_id)}
-						stroke-width="8"
+						stroke-width="14"
 						stroke-linecap="round"
 						class="drop-shadow-md"
 					/>
@@ -709,7 +723,7 @@
 						x2={v2.x}
 						y2={v2.y}
 						stroke="#000000"
-						stroke-width="2"
+						stroke-width="3.5"
 						stroke-opacity="0.3"
 						stroke-linecap="round"
 					/>
@@ -722,7 +736,7 @@
 						x2={v2.x}
 						y2={v2.y}
 						stroke="#FBC02D"
-						stroke-width="10"
+						stroke-width="16"
 						stroke-linecap="round"
 						stroke-dasharray="8 6"
 						class="drop-shadow-md"
@@ -734,7 +748,7 @@
 						x2={v2.x}
 						y2={v2.y}
 						stroke="#FFF8E1"
-						stroke-width="4"
+						stroke-width="7"
 						stroke-linecap="round"
 						stroke-opacity="0.9"
 					/>
@@ -748,14 +762,29 @@
 				{@const { x, y } = getPixelCoords(vertex.x, vertex.y)}
 
 				<!-- Interactive hit area for vertices -->
-				{#if canPlaceSettlement && !vertex.building}
+				{#if canPlaceSettlement && !vertex.building && legalSettlementVertexIds.has(vertex.id)}
 					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 					<circle
 						cx={x}
 						cy={y}
-						r="12"
+						r="18"
 						fill="transparent"
 						class="cursor-pointer transition-colors hover:fill-white/50"
+						on:click={() => handleVertexClick(vertex.id)}
+					/>
+				{/if}
+
+				{#if canPlaceCity && legalCityVertexIds.has(vertex.id)}
+					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+					<circle
+						cx={x}
+						cy={y}
+						r="22"
+						fill="transparent"
+						stroke="#FFF8E1"
+						stroke-width="2.5"
+						stroke-dasharray="4 3"
+						class="hover:stroke-wheat cursor-pointer transition-all hover:fill-white/20"
 						on:click={() => handleVertexClick(vertex.id)}
 					/>
 				{/if}
@@ -766,18 +795,18 @@
 					<g transform="translate({x}, {y})">
 						{#if vertex.building.kind === 'Settlement'}
 							<path
-								d="M-8,4 L-8,-4 L0,-10 L8,-4 L8,4 Z"
+								d="M-12,6 L-12,-6 L0,-15 L12,-6 L12,6 Z"
 								fill={color}
 								stroke="#3E2723"
-								stroke-width="1.5"
+								stroke-width="2.5"
 								class="drop-shadow-md"
 							/>
 						{:else if vertex.building.kind === 'City'}
 							<path
-								d="M-10,6 L-10,-2 L-4,-6 L-4,-2 L4,-2 L4,-8 L10,-12 L10,6 Z"
+								d="M-15,9 L-15,-3 L-6,-9 L-6,-3 L6,-3 L6,-12 L15,-18 L15,9 Z"
 								fill={color}
 								stroke="#3E2723"
-								stroke-width="1.5"
+								stroke-width="2.5"
 								class="drop-shadow-md"
 							/>
 						{/if}
