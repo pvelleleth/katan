@@ -171,7 +171,6 @@ export function getLegalCityVertices(board: BoardState | null | undefined, playe
 	}
 
 	return board.vertices.filter(
-		(vertex) =>
-			vertex.building?.player_id === playerId && vertex.building.kind === 'Settlement'
+		(vertex) => vertex.building?.player_id === playerId && vertex.building.kind === 'Settlement'
 	);
 }

@@ -511,12 +511,12 @@
 					disabled={!canBuyDevelopmentCard}
 					class="rounded-xl bg-purple-600 px-5 py-2.5 font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
 				>
-						Buy Dev Card
-					</button>
+					Buy Dev Card
+				</button>
 				<button
 					on:click={toggleCityPlacement}
 					disabled={!canBuildCity && pendingBoardBuildAction !== 'city'}
-					class="rounded-xl bg-wheat px-5 py-2.5 font-bold text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+					class="bg-wheat rounded-xl px-5 py-2.5 font-bold text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
 				>
 					{pendingBoardBuildAction === 'city' ? 'Cancel City' : 'Build City'}
 				</button>
@@ -549,7 +549,9 @@
 	</div>
 
 	{#if pendingBoardBuildAction === 'city'}
-		<div class="rounded-2xl border-2 border-wheat/30 bg-wheat/10 px-4 py-3 text-sm font-semibold text-wood-dark shadow-sm">
+		<div
+			class="border-wheat/30 bg-wheat/10 rounded-2xl border-2 px-4 py-3 text-sm font-semibold text-wood-dark shadow-sm"
+		>
 			Click one of your settlements on the board to upgrade it to a city.
 		</div>
 	{/if}

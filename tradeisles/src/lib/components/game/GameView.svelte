@@ -7,9 +7,16 @@
 	import TradeComposer from './TradeComposer.svelte';
 	import TradeOfferPopup from './TradeOfferPopup.svelte';
 	import GameOverScreen from './GameOverScreen.svelte';
+	import BuildCostsPanel from './BuildCostsPanel.svelte';
 	import type { ResourceKey, ResourcePile } from './trade';
 
 	$: isGameOver = gameState?.turn?.phase === 'GameOver';
+
+	let costsPanelOpen = false;
+
+	function toggleCostsPanel() {
+		costsPanelOpen = !costsPanelOpen;
+	}
 
 	export let gameState: any;
 	export let playerId: string;
@@ -128,9 +135,7 @@
 
 	$: if (
 		pendingBoardBuildAction &&
-		(!gameState ||
-			gameState.turn.current_player_id !== playerId ||
-			gameState.turn.phase !== 'Main')
+		(!gameState || gameState.turn.current_player_id !== playerId || gameState.turn.phase !== 'Main')
 	) {
 		cancelPendingBoardBuildAction();
 	}
@@ -150,12 +155,22 @@
 	<!-- Main Area: Game Board -->
 	<main class="relative flex flex-1 flex-col overflow-hidden">
 		<div class="flex-1 overflow-auto">
-			<button
-				on:click={onLeaveGame}
-				class="absolute top-4 right-4 z-20 rounded-full border border-white/20 bg-black/10 px-3 py-1 text-xs font-bold text-white/50 backdrop-blur-md transition-all hover:bg-black/20 hover:text-white"
-			>
-				Leave Game
-			</button>
+			<div class="absolute top-4 right-4 z-20 flex items-center gap-2">
+				<button
+					on:click={toggleCostsPanel}
+					class="rounded-full border border-white/20 bg-black/10 px-3 py-1 text-xs font-bold text-white/50 backdrop-blur-md transition-all hover:bg-black/20 hover:text-white"
+					title="Build costs"
+				>
+					Costs
+				</button>
+				<button
+					on:click={onLeaveGame}
+					class="rounded-full border border-white/20 bg-black/10 px-3 py-1 text-xs font-bold text-white/50 backdrop-blur-md transition-all hover:bg-black/20 hover:text-white"
+				>
+					Leave Game
+				</button>
+			</div>
+			<BuildCostsPanel open={costsPanelOpen} onClose={toggleCostsPanel} />
 			<GameBoard
 				board={gameState.board}
 				{gameState}

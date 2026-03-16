@@ -25,6 +25,7 @@
 		ocean: 'bg-ocean',
 		wheat: 'bg-wheat',
 		forest: 'bg-forest',
+		purple: 'bg-purple',
 		wood: 'bg-wood'
 	};
 
@@ -33,6 +34,7 @@
 		ocean: 'text-ocean',
 		wheat: 'text-wheat',
 		forest: 'text-forest',
+		purple: 'text-purple',
 		wood: 'text-wood'
 	};
 
@@ -41,6 +43,7 @@
 		ocean: 'border-ocean',
 		wheat: 'border-wheat',
 		forest: 'border-forest',
+		purple: 'border-purple',
 		wood: 'border-wood'
 	};
 </script>
@@ -60,7 +63,7 @@
 				style="
 					--delay: {(i * 0.37) % 3}s;
 					--x: {(i * 53) % 100}%;
-					--size: {8 + (i * 7) % 18}px;
+					--size: {8 + ((i * 7) % 18)}px;
 					--hue: {(i * 37) % 360}deg;
 					left: var(--x);
 					top: -20px;
@@ -80,7 +83,7 @@
 		<!-- Crown icon -->
 		<div class="flex flex-col items-center gap-3">
 			<div
-				class="flex h-20 w-20 items-center justify-center rounded-full bg-amber-400 shadow-xl shadow-amber-400/40 ring-4 ring-amber-200"
+				class="flex h-20 w-20 items-center justify-center rounded-full bg-amber-400 shadow-xl ring-4 shadow-amber-400/40 ring-amber-200"
 			>
 				<svg class="h-10 w-10 text-amber-900" fill="currentColor" viewBox="0 0 24 24">
 					<path
@@ -105,9 +108,7 @@
 
 		<!-- Final standings -->
 		<div class="w-full">
-			<h2
-				class="mb-3 text-center text-xs font-bold tracking-widest text-wood-light/70 uppercase"
-			>
+			<h2 class="mb-3 text-center text-xs font-bold tracking-widest text-wood-light/70 uppercase">
 				Final Standings
 			</h2>
 			<div class="flex flex-col gap-2">
@@ -121,7 +122,7 @@
 					>
 						<!-- Rank badge -->
 						<div
-							class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-black text-sm
+							class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-black
 							{rank === 0
 								? 'bg-amber-400 text-amber-900'
 								: rank === 1
@@ -137,16 +138,16 @@
 						<div
 							class="h-8 w-8 shrink-0 rounded-full border-2 border-white shadow-sm {colorBg[
 								player.color
-							] ?? 'bg-wood'} flex items-center justify-center text-white font-bold text-sm"
+							] ?? 'bg-wood'} flex items-center justify-center text-sm font-bold text-white"
 						>
 							{player.name.charAt(0).toUpperCase()}
 						</div>
 
 						<!-- Name -->
-						<div class="flex-1 font-bold text-wood-dark truncate">
+						<div class="flex-1 truncate font-bold text-wood-dark">
 							{player.name}
 							{#if isMe}
-								<span class="ml-1 text-xs text-wood-light font-normal">(You)</span>
+								<span class="ml-1 text-xs font-normal text-wood-light">(You)</span>
 							{/if}
 							{#if isWinner}
 								<span class="ml-1">👑</span>

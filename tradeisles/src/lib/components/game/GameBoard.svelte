@@ -121,10 +121,11 @@
 		const p = players.find((p) => p.id === pId);
 		if (!p) return '#ffffff';
 		const colors: Record<string, string> = {
-			brick: '#B22222',
-			ocean: '#146c8e',
-			wheat: '#DAA520',
+			brick: '#E67E22',
+			ocean: '#2563EB',
+			wheat: '#F5F5F5',
 			forest: '#2E8B57',
+			purple: '#7C3AED',
 			wood: '#8B4513'
 		};
 		return colors[p.color] || '#ffffff';

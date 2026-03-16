@@ -14,6 +14,7 @@
 		ocean: 'bg-ocean text-white',
 		wheat: 'bg-wheat text-wood-dark',
 		forest: 'bg-forest text-white',
+		purple: 'bg-purple text-white',
 		wood: 'bg-wood text-white'
 	};
 

@@ -12,7 +12,7 @@
 	let loading = true;
 	let copied = false;
 
-	type ColorNames = 'brick' | 'ocean' | 'wheat' | 'forest';
+	type ColorNames = 'brick' | 'ocean' | 'wheat' | 'purple';
 
 	type GameSettings = {
 		turnTimeSeconds: number;
@@ -153,7 +153,7 @@
 				}
 
 				// Keep the color assignment stable by looking at the DB or doing it deterministically
-				const fallbackColors: ColorNames[] = ['brick', 'ocean', 'wheat', 'forest'];
+				const fallbackColors: ColorNames[] = ['brick', 'ocean', 'wheat', 'purple'];
 
 				players = updatedPlayers.map((p: any, index: number) => ({
 					id: p.id,
@@ -300,7 +300,7 @@
 		brick: 'bg-brick',
 		ocean: 'bg-ocean',
 		wheat: 'bg-wheat',
-		forest: 'bg-forest'
+		purple: 'bg-purple'
 	};
 
 	$: offlinePlayers = players.filter((player) => !player.isConnected);
