@@ -1,0 +1,21 @@
+name: settler-engine
+version: 0.1.0
+
+authors:
+  - pvelleleth <pvelleleth@gmail.com>
+
+targets:
+  settler-engine:
+    main: src/settler-engine.cr
+
+crystal: '>= 1.18.2'
+
+dependencies:
+  dotenv:
+    github: drum445/dotenv
+    version: ~> 0.5.0
+  pg:
+    github: will/crystal-pg
+    version: ~> 0.29.0
+
+license: MIT

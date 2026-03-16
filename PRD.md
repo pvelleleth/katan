@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 
 ## Product Name
-Working title: HexArena (placeholder)
+Settler
 
 ## Vision
-Build the best browser-based strategy trading board game inspired by the mechanics of the classic board game Catan. The product recreates the core gameplay loop of online Catan-style play—hex tile resource production, settlement and city building, trading between players, road expansion, and victory-point-based competition—while providing a modern multiplayer web experience. Players should be able to instantly join games in the browser with minimal friction while enjoying competitive ranked play, social features, and a polished modern UX.
+Build the best browser-based strategy trading board game inspired by the mechanics of the classic board game Catan. The product, Settler, recreates the core gameplay loop of online settlement-style play—hex tile resource production, settlement and city building, trading between players, road expansion, and victory-point-based competition—while providing a modern multiplayer web experience. Players should be able to instantly join games in the browser with minimal friction while enjoying competitive ranked play, social features, and a polished modern UX.
 
 ## Design Inspiration
 The gameplay model is based on the well-known mechanics popularized by the board game Catan: hex-based map generation, dice-driven resource production, player trading, road networks, settlement upgrades, and victory points. This project aims to build a modern online implementation of those mechanics with improved UX, multiplayer infrastructure, and competitive features.
