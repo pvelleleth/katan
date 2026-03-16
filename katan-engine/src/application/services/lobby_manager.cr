@@ -193,6 +193,7 @@ module Katan::Engine::Application
         event_json = {
           type:    "game_log",
           message: "Game started.",
+          event_type: "game_started",
         }.to_json
         list.each do |client|
           client.send_json(event_json)
@@ -860,6 +861,8 @@ module Katan::Engine::Application
         event_json = {
           type:    "game_log",
           message: message,
+          event_type: event_type,
+          payload: JSON.parse(payload_json),
         }.to_json
         list.each do |client|
           client.send_json(event_json)

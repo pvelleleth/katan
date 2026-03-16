@@ -1,9 +1,16 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { computeDiceStats, theoreticalProbabilities } from '$lib/utils/diceStats';
 
 	export let gameState: any;
 	export let players: any[]; // lobby players (has colors)
 	export let playerId: string;
+	export let gameLog: { type?: string; payload?: any; message: string; createdAt: string }[] = [];
+
+	$: diceStats = computeDiceStats(gameLog);
+	$: totalRolls = Object.values(diceStats).reduce((a, b) => a + b, 0);
+
+	const rollNumbers = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 	$: winnerPlayerId = gameState.winner_player_id as string | null;
 	$: playerOrder = gameState.player_order as string[];
@@ -169,6 +176,54 @@
 						</div>
 					</div>
 				{/each}
+			</div>
+		</div>
+
+		<!-- Dice Stats -->
+		<div class="w-full">
+			<h2 class="mb-4 text-center text-xs font-bold tracking-widest text-wood-light/70 uppercase">
+				Dice Stats ({totalRolls} total rolls)
+			</h2>
+			<div class="flex h-32 items-end justify-between gap-1 px-2">
+				{#each rollNumbers as num}
+					{@const count = diceStats[num] || 0}
+					{@const theoreticalPct = theoreticalProbabilities[num] * 100}
+					{@const actualPct = totalRolls > 0 ? (count / totalRolls) * 100 : 0}
+					{@const maxPct = Math.max(...Object.values(diceStats)) / totalRolls || 0.1}
+					<div class="group relative flex flex-1 flex-col items-center">
+						<!-- Actual bar -->
+						<div
+							class="w-full rounded-t-sm bg-ocean transition-all duration-500"
+							style="height: {(actualPct / (maxPct * 100 || 1)) * 80}px"
+						></div>
+						<!-- Dot for theoretical -->
+						<div
+							class="absolute bottom-6 h-1 w-1 rounded-full bg-brick opacity-40"
+							style="bottom: {(theoreticalPct / (maxPct * 100 || 1)) * 80 + 24}px"
+						></div>
+
+						<span class="mt-2 text-[10px] font-black text-wood-dark/40">{num}</span>
+
+						<!-- Tooltip -->
+						<div
+							class="pointer-events-none absolute bottom-full mb-2 hidden -translate-y-1 rounded bg-wood-dark px-2 py-1 text-[10px] text-white whitespace-nowrap group-hover:block"
+						>
+							Roll {num}: {count} ({actualPct.toFixed(1)}%)
+							<br />
+							Expected: {theoreticalPct.toFixed(1)}%
+						</div>
+					</div>
+				{/each}
+			</div>
+			<div class="mt-4 flex items-center justify-center gap-4 text-[10px] font-bold">
+				<div class="flex items-center gap-1.5">
+					<div class="h-2 w-2 rounded-full bg-ocean"></div>
+					<span class="text-wood-light uppercase">Actual</span>
+				</div>
+				<div class="flex items-center gap-1.5">
+					<div class="h-2 w-2 rounded-full bg-brick opacity-40"></div>
+					<span class="text-wood-light uppercase">Expected</span>
+				</div>
 			</div>
 		</div>
 

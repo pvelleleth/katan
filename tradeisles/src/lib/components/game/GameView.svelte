@@ -251,6 +251,6 @@
 	</main>
 
 	{#if isGameOver}
-		<GameOverScreen {gameState} {players} {playerId} />
+		<GameOverScreen {gameState} {players} {playerId} {gameLog} />
 	{/if}
 </div>

@@ -22,6 +22,8 @@ export const GET: RequestHandler = async ({ params }) => {
 		columns: {
 			id: true,
 			sequence: true,
+			type: true,
+			payload: true,
 			message: true,
 			createdAt: true
 		}

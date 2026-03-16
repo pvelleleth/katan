@@ -50,7 +50,7 @@
 	let gameStarted = false;
 	let gameState: any = null;
 	let isConnecting = true;
-	let gameLog: { message: string; createdAt: string }[] = [];
+	let gameLog: { type?: string; payload?: any; message: string; createdAt: string }[] = [];
 	let tradeComposerOpen = false;
 	let tradeComposerMode: 'player' | 'bank' = 'player';
 
@@ -69,6 +69,8 @@
 					if (data.events) {
 						gameLog = data.events
 							.map((e: any) => ({
+								type: e.type,
+								payload: e.payload,
 								message: e.message,
 								createdAt: e.createdAt
 							}))
@@ -168,7 +170,15 @@
 				gameStarted = true;
 				gameState = msg.game_state;
 			} else if (msg.type === 'game_log') {
-				gameLog = [...gameLog, { message: msg.message, createdAt: new Date().toISOString() }];
+				gameLog = [
+					...gameLog,
+					{
+						type: msg.event_type,
+						payload: msg.payload,
+						message: msg.message,
+						createdAt: new Date().toISOString()
+					}
+				];
 			} else if (msg.type === 'kicked') {
 				// This client was kicked by the host
 				ws?.close();
