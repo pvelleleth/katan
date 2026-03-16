@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
 	import { authClient } from '$lib/auth-client';
+	import { PUBLIC_WS_URL } from '$env/static/public';
 	import type { PageData } from './$types';
 
 	export let data: PageData;
@@ -132,7 +133,7 @@
 
 	function connectWebSocket(playerId: string, name: string) {
 		// Connect to Crystal WebSocket Server
-		ws = new WebSocket(`ws://localhost:8080/ws/lobby/${lobbyId}`);
+		ws = new WebSocket(`${PUBLIC_WS_URL}/ws/lobby/${lobbyId}`);
 
 		ws.onopen = () => {
 			console.log('Connected to game engine!');

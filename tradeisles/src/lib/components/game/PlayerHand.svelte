@@ -284,7 +284,7 @@
 </script>
 
 <div class="flex flex-col gap-4">
-	<div class="flex flex-wrap items-start justify-between gap-4">
+	<div class="flex flex-wrap items-stretch justify-between gap-4">
 		<div class="flex min-w-0 flex-1 flex-wrap items-end gap-4">
 			{#each resources as res}
 				{@const count = hand[res.id] || 0}
@@ -447,7 +447,7 @@
 
 							{#if card.newCount > 0}
 								<div
-									class="bg-wheat absolute -bottom-2 left-0 rounded-full px-2 py-1 text-[10px] font-black text-wood-dark shadow-sm"
+									class="absolute -bottom-2 left-0 rounded-full bg-wheat px-2 py-1 text-[10px] font-black text-wood-dark shadow-sm"
 								>
 									New {card.newCount}
 								</div>
@@ -458,7 +458,7 @@
 			{/if}
 		</div>
 
-		<div class="flex items-center gap-3">
+		<div class="flex items-stretch gap-3">
 			{#if needsToDiscard}
 				<div class="flex flex-col items-end gap-1">
 					<span class="text-xs font-bold tracking-wider text-brick uppercase"
@@ -493,36 +493,38 @@
 					🎲 Roll Dice
 				</button>
 			{:else if phase === 'Main'}
-				<button
-					on:click={() => onTradeClick('player')}
-					disabled={!!pendingTrade}
-					class="rounded-xl bg-wood px-5 py-2.5 font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
-				>
-					{#if tradePendingForMe}
-						Trade Pending
-					{:else if tradeComposerOpen}
-						Close Trade
-					{:else}
-						Trade
-					{/if}
-				</button>
-				<button
-					on:click={() => sendGameAction('buy_development_card')}
-					disabled={!canBuyDevelopmentCard}
-					class="rounded-xl bg-purple-600 px-5 py-2.5 font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-				>
-					Buy Dev Card
-				</button>
-				<button
-					on:click={toggleCityPlacement}
-					disabled={!canBuildCity && pendingBoardBuildAction !== 'city'}
-					class="bg-wheat rounded-xl px-5 py-2.5 font-bold text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-				>
-					{pendingBoardBuildAction === 'city' ? 'Cancel City' : 'Build City'}
-				</button>
+				<div class="flex flex-col gap-1">
+					<button
+						on:click={() => onTradeClick('player')}
+						disabled={!!pendingTrade}
+						class="flex-1 rounded-lg bg-wood px-4 py-1 text-xs font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+					>
+						{#if tradePendingForMe}
+							Trade Pending
+						{:else if tradeComposerOpen}
+							Close Trade
+						{:else}
+							Trade
+						{/if}
+					</button>
+					<button
+						on:click={() => sendGameAction('buy_development_card')}
+						disabled={!canBuyDevelopmentCard}
+						class="flex-1 rounded-lg bg-purple-600 px-4 py-1 text-xs font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+					>
+						Buy Dev Card
+					</button>
+					<button
+						on:click={toggleCityPlacement}
+						disabled={!canBuildCity && pendingBoardBuildAction !== 'city'}
+						class="flex-1 rounded-lg bg-wheat px-4 py-1 text-xs font-bold text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+					>
+						{pendingBoardBuildAction === 'city' ? 'Cancel City' : 'Build City'}
+					</button>
+				</div>
 				<button
 					on:click={() => sendGameAction('end_turn')}
-					class="rounded-xl border-2 border-wood/20 bg-white px-5 py-2.5 font-bold text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95"
+					class="rounded-xl border-2 border-wood/20 bg-white px-5 py-2 font-black text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95"
 				>
 					End Turn
 				</button>
@@ -550,7 +552,7 @@
 
 	{#if pendingBoardBuildAction === 'city'}
 		<div
-			class="border-wheat/30 bg-wheat/10 rounded-2xl border-2 px-4 py-3 text-sm font-semibold text-wood-dark shadow-sm"
+			class="rounded-2xl border-2 border-wheat/30 bg-wheat/10 px-4 py-3 text-sm font-semibold text-wood-dark shadow-sm"
 		>
 			Click one of your settlements on the board to upgrade it to a city.
 		</div>
@@ -570,7 +572,7 @@
 						Ready {selectedDevCardPile.playableCount}
 					</span>
 					{#if selectedDevCardPile.newCount > 0}
-						<span class="bg-wheat/20 rounded-full px-2 py-1 text-wood-dark">
+						<span class="rounded-full bg-wheat/20 px-2 py-1 text-wood-dark">
 							New {selectedDevCardPile.newCount}
 						</span>
 					{/if}

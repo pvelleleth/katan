@@ -154,7 +154,9 @@
 
 	<!-- Main Area: Game Board -->
 	<main class="relative flex flex-1 flex-col overflow-hidden">
-		<div class="flex-1 overflow-auto">
+		<!-- Board Area Container -->
+		<div class="relative flex-1 overflow-hidden">
+			<!-- Pinned Top Controls -->
 			<div class="absolute top-4 right-4 z-20 flex items-center gap-2">
 				<button
 					on:click={toggleCostsPanel}
@@ -170,20 +172,46 @@
 					Leave Game
 				</button>
 			</div>
-			<BuildCostsPanel open={costsPanelOpen} onClose={toggleCostsPanel} />
-			<GameBoard
-				board={gameState.board}
-				{gameState}
-				{playerId}
-				{players}
-				{sendGameAction}
-				{pendingBoardDevCardAction}
-				{pendingBoardBuildAction}
-				{roadBuildingSelection}
-				onKnightTileSelect={handleKnightTileSelect}
-				onRoadBuildingEdgeSelect={handleRoadBuildingEdgeSelect}
-				onCityVertexSelect={handleCityVertexSelect}
-			/>
+
+			<!-- Scrollable Board Content -->
+			<div class="h-full w-full overflow-auto">
+				<BuildCostsPanel open={costsPanelOpen} onClose={toggleCostsPanel} />
+				<GameBoard
+					board={gameState.board}
+					{gameState}
+					{playerId}
+					{players}
+					{sendGameAction}
+					{pendingBoardDevCardAction}
+					{pendingBoardBuildAction}
+					{roadBuildingSelection}
+					onKnightTileSelect={handleKnightTileSelect}
+					onRoadBuildingEdgeSelect={handleRoadBuildingEdgeSelect}
+					onCityVertexSelect={handleCityVertexSelect}
+				/>
+			</div>
+
+			<!-- Dice Display (Pinned to bottom right of board area) -->
+			{#if gameState.last_roll}
+				<div
+					class="absolute right-6 bottom-6 z-10 flex flex-col items-center gap-2 rounded-2xl border-2 border-wood/10 bg-white/90 p-3 shadow-lg backdrop-blur-md"
+				>
+					<span class="text-[10px] font-bold tracking-wider text-wood-light uppercase">LAST ROLL</span
+					>
+					<div class="flex gap-2">
+						<div
+							class="flex h-12 w-12 items-center justify-center rounded-xl border-2 border-wood/20 bg-white shadow-sm"
+						>
+							<Dice face={gameState.last_roll.die_one} color="#B22222" />
+						</div>
+						<div
+							class="flex h-12 w-12 items-center justify-center rounded-xl border-2 border-wood/20 bg-white shadow-sm"
+						>
+							<Dice face={gameState.last_roll.die_two} color="#DAA520" />
+						</div>
+					</div>
+				</div>
+			{/if}
 		</div>
 
 		<TradeOfferPopup
@@ -206,28 +234,6 @@
 			{onSubmitPlayerTrade}
 			{onSubmitBankTrade}
 		/>
-
-		<!-- Dice Display (Bottom Right) -->
-		{#if gameState.last_roll}
-			<div
-				class="absolute right-6 bottom-28 z-10 flex flex-col items-center gap-2 rounded-2xl border-2 border-wood/10 bg-white/90 p-3 shadow-lg backdrop-blur-md"
-			>
-				<span class="text-[10px] font-bold tracking-wider text-wood-light uppercase">LAST ROLL</span
-				>
-				<div class="flex gap-2">
-					<div
-						class="flex h-12 w-12 items-center justify-center rounded-xl border-2 border-wood/20 bg-white shadow-sm"
-					>
-						<Dice face={gameState.last_roll.die_one} color="#B22222" />
-					</div>
-					<div
-						class="flex h-12 w-12 items-center justify-center rounded-xl border-2 border-wood/20 bg-white shadow-sm"
-					>
-						<Dice face={gameState.last_roll.die_two} color="#DAA520" />
-					</div>
-				</div>
-			</div>
-		{/if}
 
 		<!-- Bottom Area: Player Hand & Actions -->
 		<div class="bg-parchment/80 p-4 backdrop-blur-md">
