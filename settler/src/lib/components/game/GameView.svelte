@@ -1,6 +1,6 @@
 <script lang="ts">
 	import GameBoard from './GameBoard.svelte';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import PlayerHand from './PlayerHand.svelte';
 	import PlayerList from './PlayerList.svelte';
 	import Dice from './Dice.svelte';
@@ -11,14 +11,31 @@
 	import type { ResourceKey, ResourcePile } from './trade';
 
 	$: isGameOver = gameState?.turn?.phase === 'GameOver';
+	$: timerEnabled = !!gameState?.turn?.timer_enabled;
+	$: timerExpiresAtMs = gameState?.turn?.timer_expires_at
+		? new Date(gameState.turn.timer_expires_at).getTime()
+		: null;
+	$: timerRemainingSeconds =
+		timerEnabled && timerExpiresAtMs
+			? Math.max(0, Math.ceil((timerExpiresAtMs - nowMs) / 1000))
+			: null;
+	$: timerLabel = timerRemainingSeconds === null ? null : formatCountdown(timerRemainingSeconds);
 
 	let showGameOverSummary = false;
 	let previousIsGameOver = false;
 
 	let costsPanelOpen = false;
+	let nowMs = Date.now();
+	let timerInterval: ReturnType<typeof setInterval> | null = null;
 
 	function toggleCostsPanel() {
 		costsPanelOpen = !costsPanelOpen;
+	}
+
+	function formatCountdown(totalSeconds: number) {
+		const minutes = Math.floor(totalSeconds / 60);
+		const seconds = totalSeconds % 60;
+		return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 	}
 
 	export let gameState: any;
@@ -154,8 +171,23 @@
 	}
 
 	onDestroy(() => {
+		if (timerInterval) {
+			clearInterval(timerInterval);
+		}
 		cancelPendingBoardDevCardAction();
 		cancelPendingBoardBuildAction();
+	});
+
+	onMount(() => {
+		timerInterval = setInterval(() => {
+			nowMs = Date.now();
+		}, 250);
+
+		return () => {
+			if (timerInterval) {
+				clearInterval(timerInterval);
+			}
+		};
 	});
 </script>
 
@@ -169,6 +201,18 @@
 	<main class="relative flex flex-1 flex-col overflow-hidden">
 		<!-- Board Area Container -->
 		<div class="relative flex-1 overflow-hidden">
+			{#if timerEnabled && timerLabel}
+				<div
+					class="absolute top-4 left-4 z-20 rounded-2xl border border-white/20 bg-black/25 px-4 py-3 text-white shadow-lg backdrop-blur-md"
+				>
+					<div class="text-[10px] font-black tracking-[0.2em] text-white/70 uppercase">Turn Timer</div>
+					<div class="mt-1 flex items-end gap-3">
+						<div class="text-3xl font-black leading-none">{timerLabel}</div>
+						<div class="text-xs font-semibold text-white/70">{gameState.turn.phase}</div>
+					</div>
+				</div>
+			{/if}
+
 			<!-- Pinned Top Controls -->
 			<div class="absolute top-4 right-4 z-20 flex items-center gap-2">
 				{#if isGameOver && !showGameOverSummary}

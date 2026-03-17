@@ -62,6 +62,22 @@ private def robber_target_with_victim(game_state : GameState) : NamedTuple(tile_
 end
 
 describe GameState do
+  it "computes turn timer durations from settings" do
+    game_state = GameState.new(
+      topology: BoardTopology.standard,
+      players: {PlayerId.new("player-1") => PlayerState.new(PlayerId.new("player-1"), "Player 1")},
+      settings: {
+        "turnTimeSeconds" => JSON::Any.new(45),
+        "turnTimerEnabled" => JSON::Any.new(true),
+      }
+    )
+
+    game_state.timer_duration_for_phase(TurnPhase::Setup1Settlement).should eq(90)
+    game_state.timer_duration_for_phase(TurnPhase::Setup2Road).should eq(22)
+    game_state.timer_duration_for_phase(TurnPhase::Roll).should eq(7)
+    game_state.timer_duration_for_phase(TurnPhase::Main).should eq(45)
+  end
+
   it "advances through the snake-order setup flow" do
     game_state = build_game_state
     player_order = game_state.player_order

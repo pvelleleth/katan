@@ -163,8 +163,19 @@ class TurnState
   property number : Int32
   property phase : TurnPhase
   property dev_card_played_this_turn : Bool
+  property timer_started_at : Time?
+  property timer_expires_at : Time?
+  property timer_duration_seconds : Int32?
 
-  def initialize(@current_player_id : PlayerId, @number : Int32, @phase : TurnPhase, @dev_card_played_this_turn = false)
+  def initialize(
+    @current_player_id : PlayerId,
+    @number : Int32,
+    @phase : TurnPhase,
+    @dev_card_played_this_turn = false,
+    @timer_started_at : Time? = nil,
+    @timer_expires_at : Time? = nil,
+    @timer_duration_seconds : Int32? = nil,
+  )
   end
 end
 
@@ -300,5 +311,56 @@ class GameState
 
   def current_player! : PlayerState
     player!(@turn.current_player_id)
+  end
+
+  def turn_timer_enabled? : Bool
+    @settings["turnTimerEnabled"]?.try(&.as_bool) != false
+  end
+
+  def configured_turn_time_seconds : Int32
+    @settings["turnTimeSeconds"]?.try(&.as_i.to_i32) || 120
+  end
+
+  def timer_duration_for_phase(phase : TurnPhase = @turn.phase) : Int32?
+    case phase
+    when .setup1_settlement?, .setup2_settlement?
+      configured_turn_time_seconds * 2
+    when .setup1_road?, .setup2_road?
+      configured_turn_time_seconds // 2
+    when .roll?
+      7
+    when .discard_resources?, .main?, .move_robber?, .steal_resource?
+      configured_turn_time_seconds
+    when .lobby?, .game_over?
+      nil
+    else
+      @turn.timer_duration_seconds || configured_turn_time_seconds
+    end
+  end
+
+  def clear_turn_timer! : Nil
+    @turn.timer_started_at = nil
+    @turn.timer_expires_at = nil
+    @turn.timer_duration_seconds = nil
+  end
+
+  def start_turn_timer!(duration_seconds : Int32, now : Time = Time.utc) : Nil
+    @turn.timer_started_at = now
+    @turn.timer_duration_seconds = duration_seconds
+    @turn.timer_expires_at = now + duration_seconds.seconds
+  end
+
+  def extend_turn_timer!(seconds : Int32, now : Time = Time.utc) : Nil
+    return unless turn_timer_enabled?
+    return unless expires_at = @turn.timer_expires_at
+
+    base_time = expires_at < now ? now : expires_at
+    started_at = @turn.timer_started_at || now
+    duration_seconds = @turn.timer_duration_seconds || seconds
+    extension = base_time + seconds.seconds
+
+    @turn.timer_started_at = started_at
+    @turn.timer_expires_at = extension
+    @turn.timer_duration_seconds = (extension - started_at).total_seconds.to_i32
   end
 end

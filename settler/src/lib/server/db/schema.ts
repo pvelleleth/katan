@@ -15,6 +15,7 @@ import {
 import { user } from '../../auth-schema';
 
 export type GameSettings = {
+	turnTimerEnabled: boolean;
 	turnTimeSeconds: number;
 	maxPlayers: number;
 	victoryPoints: number;
@@ -26,6 +27,7 @@ export type GameSettings = {
 export type GameSnapshot = Record<string, unknown>;
 
 const defaultGameSettings: GameSettings = {
+	turnTimerEnabled: true,
 	turnTimeSeconds: 120,
 	maxPlayers: 4,
 	victoryPoints: 10,

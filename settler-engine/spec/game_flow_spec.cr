@@ -64,6 +64,139 @@ class RecordingGameEventStore < Settler::Engine::Infrastructure::Persistence::Ga
 end
 
 describe Settler::Engine::Application::LobbyManager do
+  it "serializes turn timer metadata and resets durations by phase" do
+    store = RecordingGameEventStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store, FixedDiceRoller.new([DiceRoll.new(1, 1)]))
+    first_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    first_client.lobby_id = "TIME01"
+    second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    second_client.lobby_id = "TIME01"
+
+    manager.handle_join("TIME01", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("TIME01", "player-2", "Bob", second_client)
+
+    lobby = manager.get_or_create_lobby("TIME01")
+    lobby.settings = {
+      "turnTimeSeconds" => JSON::Any.new(30),
+      "turnTimerEnabled" => JSON::Any.new(true),
+    }
+
+    manager.start_game("TIME01")
+
+    game_state = manager.games["TIME01"]
+    game_state.turn.timer_duration_seconds.should eq(60)
+    game_state.turn.timer_expires_at.should_not be_nil
+
+    current_player_id = game_state.turn.current_player_id.value
+    manager.place_settlement("TIME01", current_player_id, legal_setup_vertex_for_current_player(game_state).value, true)
+    game_state.turn.phase.should eq(TurnPhase::Setup1Road)
+    game_state.turn.timer_duration_seconds.should eq(15)
+
+    complete_setup_through_manager!(manager, "TIME01")
+    game_state.turn.phase.should eq(TurnPhase::Roll)
+    game_state.turn.timer_duration_seconds.should eq(7)
+
+    manager.roll_dice("TIME01", game_state.turn.current_player_id.value)
+    game_state.turn.phase.should eq(TurnPhase::Main)
+    game_state.turn.timer_duration_seconds.should eq(30)
+
+    snapshot_json = JSON.parse(store.snapshots.last[:snapshot_json])
+    snapshot_json["turn"]["timer_enabled"].as_bool.should be_true
+    snapshot_json["turn"]["timer_started_at"].as_s.should_not be_empty
+    snapshot_json["turn"]["timer_expires_at"].as_s.should_not be_empty
+    snapshot_json["turn"]["timer_duration_seconds"].as_i.should eq(30)
+  end
+
+  it "does not extend the active timer for other players' responses" do
+    store = RecordingGameEventStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store, FixedDiceRoller.new([] of DiceRoll))
+    first_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    first_client.lobby_id = "TIME02"
+    second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    second_client.lobby_id = "TIME02"
+    third_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    third_client.lobby_id = "TIME02"
+
+    manager.handle_join("TIME02", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("TIME02", "player-2", "Bob", second_client)
+    manager.handle_join("TIME02", "player-3", "Cara", third_client)
+    manager.get_or_create_lobby("TIME02").settings = {
+      "turnTimeSeconds" => JSON::Any.new(30),
+      "turnTimerEnabled" => JSON::Any.new(true),
+    }
+
+    manager.start_game("TIME02")
+    complete_setup_through_manager!(manager, "TIME02")
+
+    game_state = manager.games["TIME02"]
+    current_player_id = game_state.turn.current_player_id.value
+    proposer = game_state.player!(PlayerId.new(current_player_id))
+    proposer.hand.wood = 2
+    other_player_id = (game_state.player_order.map(&.value) - [current_player_id]).first
+    game_state.player!(PlayerId.new(other_player_id)).hand.brick = 1
+    game_state.turn.phase = TurnPhase::Main
+    game_state.start_turn_timer!(30)
+
+    manager.propose_player_trade("TIME02", current_player_id, ResourcePile.new(1, 0, 0, 0, 0), ResourcePile.new(0, 1, 0, 0, 0))
+    timer_after_propose = game_state.turn.timer_duration_seconds
+    timer_after_propose.should eq(40)
+
+    manager.accept_player_trade("TIME02", other_player_id)
+    game_state.turn.timer_duration_seconds.should eq(timer_after_propose)
+  end
+
+  it "resets and extends the timer correctly across the robber flow after rolling a 7" do
+    store = RecordingGameEventStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store, FixedDiceRoller.new([DiceRoll.new(3, 4)]))
+    first_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    first_client.lobby_id = "TIME07"
+    second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    second_client.lobby_id = "TIME07"
+
+    manager.handle_join("TIME07", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("TIME07", "player-2", "Bob", second_client)
+    manager.get_or_create_lobby("TIME07").settings = {
+      "turnTimeSeconds" => JSON::Any.new(30),
+      "turnTimerEnabled" => JSON::Any.new(true),
+    }
+
+    manager.start_game("TIME07")
+    complete_setup_through_manager!(manager, "TIME07")
+
+    game_state = manager.games["TIME07"]
+    current_player_id = game_state.turn.current_player_id.value
+    other_player_id = (game_state.player_order.map(&.value) - [current_player_id]).first
+
+    discarding_hand = game_state.player!(PlayerId.new(other_player_id)).hand
+    discarding_hand.wood = 4
+    discarding_hand.brick = 2
+    discarding_hand.sheep = 2
+    discarding_hand.wheat = 2
+    discarding_hand.ore = 0
+
+    robber_target = game_state.topology.tiles.keys.sort_by(&.value).find do |tile_id|
+      tile_id != game_state.board.robber_tile_id
+    end.not_nil!
+    robber_vertex_id = game_state.topology.tiles[robber_target].vertex_ids.first
+    game_state.board.buildings[robber_vertex_id] = Building.new(PlayerId.new(other_player_id), BuildingKind::Settlement)
+
+    manager.roll_dice("TIME07", current_player_id)
+    game_state.turn.phase.should eq(TurnPhase::DiscardResources)
+    game_state.turn.timer_duration_seconds.should eq(30)
+
+    manager.discard_robber("TIME07", other_player_id, ResourcePile.new(2, 1, 1, 1, 0))
+    game_state.turn.phase.should eq(TurnPhase::MoveRobber)
+    game_state.turn.timer_duration_seconds.should eq(30)
+
+    manager.move_robber("TIME07", current_player_id, robber_target.value)
+    game_state.turn.phase.should eq(TurnPhase::StealResource)
+    game_state.turn.timer_duration_seconds.should eq(40)
+
+    manager.robber_steal("TIME07", current_player_id, other_player_id)
+    game_state.turn.phase.should eq(TurnPhase::Main)
+    game_state.turn.timer_duration_seconds.should eq(50)
+  end
+
   it "appends and applies every current gameplay action path" do
     store = RecordingGameEventStore.new
     manager = Settler::Engine::Application::LobbyManager.new(store, FixedDiceRoller.new([DiceRoll.new(3, 4)]))

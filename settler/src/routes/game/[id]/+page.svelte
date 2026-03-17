@@ -16,6 +16,7 @@
 	type ColorNames = 'brick' | 'ocean' | 'wheat' | 'purple';
 
 	type GameSettings = {
+		turnTimerEnabled: boolean;
 		turnTimeSeconds: number;
 		maxPlayers: number;
 		victoryPoints: number;
@@ -25,6 +26,7 @@
 	};
 
 	const defaultSettings: GameSettings = {
+		turnTimerEnabled: true,
 		turnTimeSeconds: 120,
 		maxPlayers: 4,
 		victoryPoints: 10,
@@ -619,6 +621,21 @@
 							>
 								<h2 class="mb-5 text-xl font-black text-wood-dark">Game Settings</h2>
 								<div class="flex flex-col gap-5">
+									<div>
+										<label
+											class="flex items-center gap-3 {!isHost
+												? 'cursor-default'
+												: 'cursor-pointer'}"
+										>
+											<input
+												type="checkbox"
+												bind:checked={settings.turnTimerEnabled}
+												disabled={!isHost}
+												class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
+											/>
+											<span class="text-sm font-semibold text-wood-dark">Enable turn timer</span>
+										</label>
+									</div>
 									<div>
 										<label
 											for="turnTime"

@@ -17,6 +17,7 @@ module Settler::Engine::Application
 
   class LobbyManager
     DISCONNECT_GRACE_PERIOD = 60.seconds
+    TIMER_BONUS_SECONDS = 10
 
     property lobbies = Hash(String, Domain::Lobby).new
     property clients = Hash(String, Array(Transport::WebSocket::Client)).new
@@ -26,6 +27,7 @@ module Settler::Engine::Application
       @game_event_store : Infrastructure::Persistence::GameEventStore = Infrastructure::Persistence::NullGameEventStore.new,
       @dice_roller : DiceRoller = RandomDiceRoller.new,
     )
+      @timer_versions = Hash(String, Int32).new(0)
     end
 
     def get_or_create_lobby(id : String) : Domain::Lobby
@@ -153,6 +155,11 @@ module Settler::Engine::Application
     def update_settings(lobby_id : String, settings : Hash(String, JSON::Any))
       lobby = get_or_create_lobby(lobby_id)
       lobby.settings = settings
+      if game_state = @games[lobby_id]?
+        game_state.settings.clear
+        settings.each { |key, value| game_state.settings[key] = value }
+        initialize_turn_timer!(lobby_id, game_state)
+      end
       @game_event_store.update_game_settings(lobby_id, settings.to_json)
       broadcast_lobby_state(lobby_id)
     rescue ex
@@ -180,6 +187,7 @@ module Settler::Engine::Application
 
       game_started = GameStarted.new(next_version(game_state))
       game_state.apply!(game_started)
+      initialize_turn_timer!(lobby_id, game_state)
 
       @game_event_store.append(
         lobby_code: lobby_id,
@@ -207,11 +215,14 @@ module Settler::Engine::Application
       puts "Failed to start game for #{lobby_id}: #{ex.message}"
     end
 
-    def place_settlement(lobby_id : String, player_id : String, vertex_id : String, free : Bool = false)
+    def place_settlement(lobby_id : String, player_id : String, vertex_id : String, free : Bool = false, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = SettlementPlaced.new(next_version(game_state), PlayerId.new(player_id), VertexId.new(vertex_id), free)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus && !setup_phase?(previous_phase))
       
       message = "#{game_state.player!(event.player_id).name} placed a settlement."
       if free && game_state.turn.phase == TurnPhase::Setup2Road
@@ -226,11 +237,14 @@ module Settler::Engine::Application
       puts "Failed to place settlement for #{lobby_id}: #{ex.message}"
     end
 
-    def place_road(lobby_id : String, player_id : String, edge_id : String, free : Bool = false)
+    def place_road(lobby_id : String, player_id : String, edge_id : String, free : Bool = false, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = RoadPlaced.new(next_version(game_state), PlayerId.new(player_id), EdgeId.new(edge_id), free)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus && !setup_phase?(previous_phase))
       persist_game_event(lobby_id, game_state, "road_placed", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} placed a road.")
       broadcast_game_state(lobby_id)
     rescue ex
@@ -239,9 +253,12 @@ module Settler::Engine::Application
 
     def place_city(lobby_id : String, player_id : String, vertex_id : String)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = CityPlaced.new(next_version(game_state), PlayerId.new(player_id), VertexId.new(vertex_id))
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, true)
       persist_game_event(lobby_id, game_state, "city_placed", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} upgraded a settlement to a city.")
       broadcast_game_state(lobby_id)
     rescue ex
@@ -251,6 +268,8 @@ module Settler::Engine::Application
     def buy_development_card(lobby_id : String, player_id : String)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       actor = PlayerId.new(player_id)
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
 
       # Validate purchase before sampling to avoid RNG contamination from rejected attempts
       validate_development_card_purchase!(game_state, actor)
@@ -259,6 +278,7 @@ module Settler::Engine::Application
       event = DevelopmentCardPurchased.new(next_version(game_state), actor, card)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, true)
       persist_game_event(lobby_id, game_state, "development_card_purchased", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} bought a development card.")
       broadcast_game_state(lobby_id)
     rescue ex
@@ -272,55 +292,70 @@ module Settler::Engine::Application
       raise "player does not have enough resources" unless game_state.player!(player_id).hand.can_afford_development_card?
     end
 
-    def play_knight(lobby_id : String, player_id : String, tile_id : String)
+    def play_knight(lobby_id : String, player_id : String, tile_id : String, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = KnightPlayed.new(next_version(game_state), PlayerId.new(player_id), TileId.new(tile_id))
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       persist_game_event(lobby_id, game_state, "knight_played", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} played a knight.")
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to play knight for #{lobby_id}: #{ex.message}"
     end
 
-    def play_road_building(lobby_id : String, player_id : String, first_edge_id : String, second_edge_id : String? = nil)
+    def play_road_building(lobby_id : String, player_id : String, first_edge_id : String, second_edge_id : String? = nil, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = RoadBuildingPlayed.new(next_version(game_state), PlayerId.new(player_id), EdgeId.new(first_edge_id), second_edge_id ? EdgeId.new(second_edge_id) : nil)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       persist_game_event(lobby_id, game_state, "road_building_played", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} played road building.")
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to play road building for #{lobby_id}: #{ex.message}"
     end
 
-    def play_monopoly(lobby_id : String, player_id : String, resource : Resource)
+    def play_monopoly(lobby_id : String, player_id : String, resource : Resource, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = MonopolyPlayed.new(next_version(game_state), PlayerId.new(player_id), resource)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       persist_game_event(lobby_id, game_state, "monopoly_played", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} played monopoly.")
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to play monopoly for #{lobby_id}: #{ex.message}"
     end
 
-    def play_year_of_plenty(lobby_id : String, player_id : String, first_resource : Resource, second_resource : Resource)
+    def play_year_of_plenty(lobby_id : String, player_id : String, first_resource : Resource, second_resource : Resource, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = YearOfPlentyPlayed.new(next_version(game_state), PlayerId.new(player_id), first_resource, second_resource)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       persist_game_event(lobby_id, game_state, "year_of_plenty_played", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} played year of plenty.")
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to play year of plenty for #{lobby_id}: #{ex.message}"
     end
 
-    def propose_player_trade(lobby_id : String, player_id : String, offered : ResourcePile, requested : ResourcePile)
+    def propose_player_trade(lobby_id : String, player_id : String, offered : ResourcePile, requested : ResourcePile, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = PlayerTradeProposed.new(next_version(game_state), PlayerId.new(player_id), offered, requested)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       actor_name = game_state.player!(event.player_id).name
       persist_game_event(
         lobby_id,
@@ -338,9 +373,12 @@ module Settler::Engine::Application
     def accept_player_trade(lobby_id : String, player_id : String)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       pending_trade = game_state.pending_player_trade || raise "no pending player trade"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
 
       accepted_event = PlayerTradeAccepted.new(next_version(game_state), PlayerId.new(player_id), pending_trade.player_id)
       game_state.apply!(accepted_event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, false)
       actor_name = game_state.player!(accepted_event.player_id).name
       partner_name = game_state.player!(accepted_event.partner_player_id).name
       persist_game_event(
@@ -359,9 +397,12 @@ module Settler::Engine::Application
     def reject_player_trade(lobby_id : String, player_id : String)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       pending_trade = game_state.pending_player_trade || raise "no pending player trade"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = PlayerTradeRejected.new(next_version(game_state), PlayerId.new(player_id), pending_trade.player_id)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, false)
       actor_name = game_state.player!(event.player_id).name
       partner_name = game_state.player!(event.partner_player_id).name
       persist_game_event(
@@ -377,11 +418,14 @@ module Settler::Engine::Application
       puts "Failed to reject player trade for #{lobby_id}: #{ex.message}"
     end
 
-    def cancel_player_trade(lobby_id : String, player_id : String)
+    def cancel_player_trade(lobby_id : String, player_id : String, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = PlayerTradeCancelled.new(next_version(game_state), PlayerId.new(player_id))
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       actor_name = game_state.player!(event.player_id).name
       persist_game_event(
         lobby_id,
@@ -396,12 +440,15 @@ module Settler::Engine::Application
       puts "Failed to cancel player trade for #{lobby_id}: #{ex.message}"
     end
 
-    def finalize_player_trade(lobby_id : String, player_id : String, partner_player_id : String)
+    def finalize_player_trade(lobby_id : String, player_id : String, partner_player_id : String, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       pending_trade = game_state.pending_player_trade || raise "no pending player trade"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = PlayerTradeCompleted.new(next_version(game_state), PlayerId.new(player_id), PlayerId.new(partner_player_id), pending_trade.offered, pending_trade.requested)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       actor_name = game_state.player!(event.player_id).name
       partner_name = game_state.player!(event.partner_player_id).name
       offered_str = format_resource_pile(event.offered)
@@ -419,11 +466,14 @@ module Settler::Engine::Application
       puts "Failed to finalize player trade for #{lobby_id}: #{ex.message}"
     end
 
-    def trade_with_bank(lobby_id : String, player_id : String, offered_resource : Resource, requested_resource : Resource)
+    def trade_with_bank(lobby_id : String, player_id : String, offered_resource : Resource, requested_resource : Resource, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = BankTradeCompleted.new(next_version(game_state), PlayerId.new(player_id), offered_resource, requested_resource)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       actor_name = game_state.player!(event.player_id).name
       offered_amount = bank_trade_rate_for(game_state, event.player_id, event.offered_resource)
       persist_game_event(
@@ -439,15 +489,18 @@ module Settler::Engine::Application
       puts "Failed to trade with bank for #{lobby_id}: #{ex.message}"
     end
 
-    def roll_dice(lobby_id : String, player_id : String)
+    def roll_dice(lobby_id : String, player_id : String, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       actor = PlayerId.new(player_id)
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       raise "wrong player rolled dice" unless game_state.turn.current_player_id == actor
 
       roll = @dice_roller.roll
       event = DiceRolled.new(next_version(game_state), roll.die_one, roll.die_two)
 
       granted_log = game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, false)
 
       message = "#{game_state.player!(actor).name} rolled #{event.total}."
 
@@ -470,9 +523,12 @@ module Settler::Engine::Application
 
     def discard_robber(lobby_id : String, player_id : String, discarded : ResourcePile)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = RobberDiscarded.new(next_version(game_state), PlayerId.new(player_id), discarded)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, false)
       actor_name = game_state.player!(event.player_id).name
       persist_game_event(
         lobby_id,
@@ -487,25 +543,31 @@ module Settler::Engine::Application
       puts "Failed to discard for robber for #{lobby_id}: #{ex.message}"
     end
 
-    def move_robber(lobby_id : String, player_id : String, tile_id : String)
+    def move_robber(lobby_id : String, player_id : String, tile_id : String, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = RobberMoved.new(next_version(game_state), PlayerId.new(player_id), TileId.new(tile_id))
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       persist_game_event(lobby_id, game_state, "robber_moved", player_id, serialize_event_payload(event).to_json, "#{game_state.player!(event.player_id).name} moved the robber.")
       broadcast_game_state(lobby_id)
     rescue ex
       puts "Failed to move robber for #{lobby_id}: #{ex.message}"
     end
 
-    def robber_steal(lobby_id : String, player_id : String, victim_player_id : String)
+    def robber_steal(lobby_id : String, player_id : String, victim_player_id : String, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       player = PlayerId.new(player_id)
       victim = PlayerId.new(victim_player_id)
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       stolen_resource = random_resource_from_hand(game_state.player!(victim).hand)
       event = RobberStolen.new(next_version(game_state), player, victim, stolen_resource)
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       actor_name = game_state.player!(event.player_id).name
       victim_name = game_state.player!(event.victim_player_id).name
       persist_game_event(
@@ -521,12 +583,15 @@ module Settler::Engine::Application
       puts "Failed to steal with robber for #{lobby_id}: #{ex.message}"
     end
 
-    def end_turn(lobby_id : String, player_id : String)
+    def end_turn(lobby_id : String, player_id : String, grant_timer_bonus : Bool = false)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
+      previous_player_id = game_state.turn.current_player_id
+      previous_phase = game_state.turn.phase
       event = TurnEnded.new(next_version(game_state), PlayerId.new(player_id))
       actor_name = game_state.player!(event.player_id).name
 
       game_state.apply!(event)
+      sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
       persist_game_event(lobby_id, game_state, "turn_ended", player_id, serialize_event_payload(event).to_json, "#{actor_name} ended their turn.")
       broadcast_game_state(lobby_id)
     rescue ex
@@ -590,6 +655,7 @@ module Settler::Engine::Application
 
       @games[lobby_id] = game_state
       @lobbies[lobby_id] = lobby
+      schedule_turn_timer(lobby_id, game_state)
     rescue ex
       puts "Failed to restore game snapshot for #{lobby_id}: #{ex.message}"
     end
@@ -748,7 +814,10 @@ module Settler::Engine::Application
         current_player_id: PlayerId.new(turn_json["current_player_id"].as_s),
         number: turn_json["number"].as_i.to_i32,
         phase: parse_enum(TurnPhase, turn_json["phase"].as_s),
-        dev_card_played_this_turn: turn_json["dev_card_played_this_turn"].as_bool
+        dev_card_played_this_turn: turn_json["dev_card_played_this_turn"].as_bool,
+        timer_started_at: hydrate_time(turn_json["timer_started_at"]?),
+        timer_expires_at: hydrate_time(turn_json["timer_expires_at"]?),
+        timer_duration_seconds: turn_json["timer_duration_seconds"]?.try { |value| value.raw.nil? ? nil : value.as_i.to_i32 }
       )
     end
 
@@ -767,6 +836,13 @@ module Settler::Engine::Application
         last_roll_json["die_one"].as_i.to_i32,
         last_roll_json["die_two"].as_i.to_i32
       )
+    end
+
+    private def hydrate_time(time_json : JSON::Any?) : Time?
+      return nil unless time_json
+      return nil if time_json.raw.nil?
+
+      Time.parse_rfc3339(time_json.as_s)
     end
 
     private def hydrate_pending_discards(turn : JSON::Any) : Hash(PlayerId, Int32)
@@ -847,6 +923,10 @@ module Settler::Engine::Application
           number:               game_state.turn.number,
           phase:                game_state.turn.phase.to_s,
           dev_card_played_this_turn: game_state.turn.dev_card_played_this_turn,
+          timer_enabled:        game_state.turn_timer_enabled?,
+          timer_started_at:     game_state.turn.timer_started_at.try(&.to_rfc3339),
+          timer_expires_at:     game_state.turn.timer_expires_at.try(&.to_rfc3339),
+          timer_duration_seconds: game_state.turn.timer_duration_seconds,
           robber_return_phase:  game_state.robber_return_phase.try(&.to_s),
           pending_player_trade: serialize_pending_player_trade(game_state.pending_player_trade, viewer_player_id),
           pending_robber_discards: game_state.pending_robber_discards.map { |target_player_id, count|
@@ -1127,6 +1207,197 @@ module Settler::Engine::Application
         can_respond:         viewer_player_id ? viewer_player_id != pending_trade.player_id.value : false,
         can_finalize:        viewer_player_id == pending_trade.player_id.value && !pending_trade.accepted_player_ids.empty?,
       }
+    end
+
+    private def initialize_turn_timer!(lobby_id : String, game_state : GameState, now : Time = Time.utc) : Nil
+      if !game_state.turn_timer_enabled? || game_state.turn.phase.lobby? || game_state.turn.phase.game_over?
+        game_state.clear_turn_timer!
+      elsif duration = game_state.timer_duration_for_phase(game_state.turn.phase)
+        game_state.start_turn_timer!(duration, now)
+      else
+        game_state.clear_turn_timer!
+      end
+
+      schedule_turn_timer(lobby_id, game_state)
+    end
+
+    private def sync_turn_timer_after_action!(
+      lobby_id : String,
+      game_state : GameState,
+      previous_player_id : PlayerId,
+      previous_phase : TurnPhase,
+      grant_bonus : Bool,
+      now : Time = Time.utc,
+    ) : Nil
+      if !game_state.turn_timer_enabled? || game_state.turn.phase.lobby? || game_state.turn.phase.game_over?
+        game_state.clear_turn_timer!
+        schedule_turn_timer(lobby_id, game_state)
+        return
+      end
+
+      if should_reset_turn_timer?(game_state, previous_player_id, previous_phase) || game_state.turn.timer_expires_at.nil?
+        if duration = game_state.timer_duration_for_phase(game_state.turn.phase)
+          game_state.start_turn_timer!(duration, now)
+        else
+          game_state.clear_turn_timer!
+        end
+      end
+
+      if grant_bonus && game_state.turn.current_player_id == previous_player_id
+        game_state.extend_turn_timer!(TIMER_BONUS_SECONDS, now)
+      end
+
+      schedule_turn_timer(lobby_id, game_state)
+    end
+
+    private def should_reset_turn_timer?(game_state : GameState, previous_player_id : PlayerId, previous_phase : TurnPhase) : Bool
+      return true if game_state.turn.current_player_id != previous_player_id
+
+      current_phase = game_state.turn.phase
+      return false if current_phase == previous_phase
+
+      case current_phase
+      when .setup1_settlement?, .setup1_road?, .setup2_settlement?, .setup2_road?, .roll?, .discard_resources?
+        true
+      when .main?
+        previous_phase.roll?
+      when .move_robber?
+        previous_phase.roll? || previous_phase.discard_resources?
+      else
+        false
+      end
+    end
+
+    private def setup_phase?(phase : TurnPhase) : Bool
+      phase.setup1_settlement? || phase.setup1_road? || phase.setup2_settlement? || phase.setup2_road?
+    end
+
+    private def schedule_turn_timer(lobby_id : String, game_state : GameState) : Nil
+      version = (@timer_versions[lobby_id] += 1)
+      expires_at = game_state.turn.timer_expires_at
+      return unless game_state.turn_timer_enabled?
+      return unless expires_at
+
+      spawn do
+        remaining = expires_at - Time.utc
+        sleep remaining if remaining > 0.seconds
+        handle_turn_timeout(lobby_id, version)
+      end
+    end
+
+    private def handle_turn_timeout(lobby_id : String, version : Int32) : Nil
+      return unless @timer_versions[lobby_id]? == version
+      return unless game_state = @games[lobby_id]?
+      return unless game_state.turn_timer_enabled?
+      return unless expires_at = game_state.turn.timer_expires_at
+      return if expires_at > Time.utc
+
+      resolve_turn_timeout(lobby_id, game_state)
+    rescue ex
+      puts "Failed to resolve turn timeout for #{lobby_id}: #{ex.message}"
+    end
+
+    private def resolve_turn_timeout(lobby_id : String, game_state : GameState) : Nil
+      player_id = game_state.turn.current_player_id.value
+      player_name = game_state.player!(game_state.turn.current_player_id).name
+
+      case game_state.turn.phase
+      when .roll?
+        log_timeout_event(lobby_id, player_id, "#{player_name} timed out; the dice were rolled automatically.")
+        roll_dice(lobby_id, player_id, false)
+      when .main?
+        log_timeout_event(lobby_id, player_id, "#{player_name} timed out; their turn ended automatically.")
+        end_turn(lobby_id, player_id, false)
+      when .discard_resources?
+        log_timeout_event(lobby_id, player_id, "#{player_name} timed out; pending robber discards were resolved randomly.")
+        auto_discard_pending_robber!(lobby_id, game_state)
+      when .move_robber?
+        tile_id = random_legal_robber_tile_id(game_state).value
+        log_timeout_event(lobby_id, player_id, "#{player_name} timed out; the robber was moved automatically.")
+        move_robber(lobby_id, player_id, tile_id, false)
+      when .steal_resource?
+        victim_player_id = game_state.robber_eligible_victim_ids.sample(random: Random::DEFAULT).not_nil!.value
+        log_timeout_event(lobby_id, player_id, "#{player_name} timed out; a robber steal target was chosen automatically.")
+        robber_steal(lobby_id, player_id, victim_player_id, false)
+      when .setup1_settlement?, .setup2_settlement?
+        vertex_id = random_legal_setup_vertex_id(game_state).value
+        log_timeout_event(lobby_id, player_id, "#{player_name} timed out; a setup settlement was placed automatically.")
+        place_settlement(lobby_id, player_id, vertex_id, true, false)
+      when .setup1_road?, .setup2_road?
+        edge_id = random_legal_setup_road_id(game_state).value
+        log_timeout_event(lobby_id, player_id, "#{player_name} timed out; a setup road was placed automatically.")
+        place_road(lobby_id, player_id, edge_id, true, false)
+      end
+    end
+
+    private def log_timeout_event(lobby_id : String, player_id : String, message : String) : Nil
+      log_event(lobby_id, "turn_timeout", player_id, ({message: message}).to_json, message)
+    end
+
+    private def random_legal_setup_vertex_id(game_state : GameState) : VertexId
+      candidates = game_state.topology.vertices.keys.select do |vertex_id|
+        next false if game_state.board.occupied_vertex?(vertex_id)
+
+        game_state.topology.neighboring_vertices(vertex_id).none? do |neighbor_id|
+          game_state.board.occupied_vertex?(neighbor_id)
+        end
+      end
+
+      candidates.sample(random: Random::DEFAULT) || raise "no legal setup settlement available"
+    end
+
+    private def random_legal_setup_road_id(game_state : GameState) : EdgeId
+      player_id = game_state.turn.current_player_id
+      settlement_vertex_id = pending_setup_settlement_vertex(game_state, player_id)
+      candidates = game_state.topology.vertices[settlement_vertex_id].edge_ids.reject do |edge_id|
+        game_state.board.occupied_edge?(edge_id)
+      end
+
+      candidates.sample(random: Random::DEFAULT) || raise "no legal setup road available"
+    end
+
+    private def pending_setup_settlement_vertex(game_state : GameState, player_id : PlayerId) : VertexId
+      candidates = game_state.board.buildings.each_with_object([] of VertexId) do |(vertex_id, building), memo|
+        next unless building.player_id == player_id
+        next unless player_road_ids_touching_vertex(game_state, vertex_id, player_id).empty?
+        memo << vertex_id
+      end
+
+      raise "missing setup settlement for timed road placement" unless candidates.size == 1
+      candidates.first
+    end
+
+    private def player_road_ids_touching_vertex(game_state : GameState, vertex_id : VertexId, player_id : PlayerId) : Array(EdgeId)
+      game_state.topology.vertices[vertex_id].edge_ids.select do |edge_id|
+        road = game_state.board.road_at?(edge_id)
+        !!road && road.player_id == player_id
+      end
+    end
+
+    private def random_legal_robber_tile_id(game_state : GameState) : TileId
+      candidates = game_state.topology.tiles.keys.reject { |tile_id| tile_id == game_state.board.robber_tile_id }
+      candidates.sample(random: Random::DEFAULT) || raise "no legal robber tile available"
+    end
+
+    private def auto_discard_pending_robber!(lobby_id : String, game_state : GameState) : Nil
+      game_state.pending_robber_discards.keys.each do |discarding_player_id|
+        count = game_state.pending_robber_discards[discarding_player_id]? || next
+        discarded = random_discard_pile(game_state.player!(discarding_player_id).hand, count)
+        discard_robber(lobby_id, discarding_player_id.value, discarded)
+      end
+    end
+
+    private def random_discard_pile(hand : ResourceHand, count : Int32) : ResourcePile
+      remaining_hand = ResourceHand.new(hand.wood, hand.brick, hand.sheep, hand.wheat, hand.ore)
+      discarded = ResourcePile.new
+
+      count.times do
+        resource = random_resource_from_hand(remaining_hand)
+        remaining_hand.remove(resource)
+        discarded.add(resource)
+      end
+
+      discarded
     end
 
     private def next_version(game_state : GameState) : Int32

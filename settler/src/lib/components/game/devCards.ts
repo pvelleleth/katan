@@ -125,6 +125,57 @@ export function canConfirmSingleRoadBuildingPlacement(
 	return getLegalRoadBuildingEdges(board, playerId, selectedEdgeIds).length === 0;
 }
 
+function getPendingSetupSettlementVertexId(
+	board: BoardState,
+	playerId: string
+): string | null {
+	const candidateVertices = board.vertices.filter((vertex) => {
+		if (vertex.building?.player_id !== playerId) {
+			return false;
+		}
+
+		return !board.edges.some(
+			(edge) =>
+				touchesVertex(edge, vertex.id) && edge.road?.player_id === playerId
+		);
+	});
+
+	return candidateVertices.length === 1 ? candidateVertices[0].id : null;
+}
+
+export function getLegalRoadEdges(
+	board: BoardState | null | undefined,
+	playerId: string,
+	phase: string
+) {
+	if (!board) {
+		return [];
+	}
+
+	if (phase === 'Setup1Road' || phase === 'Setup2Road') {
+		const settlementVertexId = getPendingSetupSettlementVertexId(board, playerId);
+		if (!settlementVertexId) {
+			return [];
+		}
+
+		return board.edges.filter(
+			(edge) => !edge.road && touchesVertex(edge, settlementVertexId)
+		);
+	}
+
+	if (phase !== 'Main') {
+		return [];
+	}
+
+	return board.edges.filter((edge) => {
+		if (edge.road) {
+			return false;
+		}
+
+		return edgeConnectsToNetwork(board, edge, playerId, []);
+	});
+}
+
 export function getLegalSettlementVertices(
 	board: BoardState | null | undefined,
 	playerId: string,

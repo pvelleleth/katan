@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		getLegalCityVertices,
+		getLegalRoadEdges,
 		getLegalRoadBuildingEdges,
 		getLegalSettlementVertices
 	} from './devCards';
@@ -104,6 +105,7 @@
 	$: canMoveRobber = isMyTurn && (phase === 'MoveRobber' || pendingBoardDevCardAction === 'knight');
 	$: canPlaceCity = isMyTurn && phase === 'Main' && pendingBoardBuildAction === 'city';
 	$: showNormalRoadTargets = canPlaceRoad && pendingBoardDevCardAction !== 'road_building';
+	$: legalRoadEdgeIds = new Set(getLegalRoadEdges(board, playerId, phase).map((edge) => edge.id));
 	$: legalRoadBuildingEdgeIds = new Set(
 		getLegalRoadBuildingEdges(
 			pendingBoardDevCardAction === 'road_building' ? board : null,
@@ -151,6 +153,7 @@
 		}
 
 		if (!canPlaceRoad) return;
+		if (!legalRoadEdgeIds.has(edgeId)) return;
 		const isSetup = phase.startsWith('Setup');
 		sendGameAction('place_road', { edge_id: edgeId, free: isSetup });
 	}
@@ -690,7 +693,7 @@
 					pendingBoardDevCardAction === 'road_building' && legalRoadBuildingEdgeIds.has(edge.id)}
 
 				<!-- Interactive hit area for edges -->
-				{#if ((showNormalRoadTargets && !edge.road) || isRoadBuildingCandidate) && !isRoadBuildingSelected}
+					{#if ((showNormalRoadTargets && legalRoadEdgeIds.has(edge.id)) || isRoadBuildingCandidate) && !isRoadBuildingSelected}
 					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 					<line
 						x1={v1.x}
