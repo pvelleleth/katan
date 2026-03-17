@@ -1,27 +1,45 @@
-# katan-engine
+# Settler Engine
 
-TODO: Write a description here
+The high-performance game engine for [Settler](../README.md). Written in [Crystal](https://crystal-lang.org/) for speed and type safety, this server manages game sessions, validates moves, and provides real-time state updates via WebSockets.
 
-## Installation
+## 🚀 Features
 
-TODO: Write installation instructions here
+- **In-Memory State**: Fast game session management.
+- **WebSocket Server**: Low-latency communication for multiplayer.
+- **Server-Authoritative Logic**: Secure move validation and turn-based mechanics.
+- **Persistence**: Integrates with PostgreSQL via `crystal-pg` for match history and events.
 
-## Usage
+## 🛠️ Installation
 
-TODO: Write usage instructions here
+1.  [Install Crystal](https://crystal-lang.org/install/).
+2.  Install dependencies:
+    ```bash
+    shards install
+    ```
 
-## Development
+## 🏗️ Development
 
-TODO: Write development instructions here
+To start the engine in development mode:
+```bash
+crystal run src/settler-engine.cr
+```
 
-## Contributing
+To run the specs (tests):
+```bash
+crystal spec
+```
 
-1. Fork it (<https://github.com/your-github-user/katan-engine/fork>)
-2. Create your feature branch (`git checkout -b my-new-feature`)
-3. Commit your changes (`git commit -am 'Add some feature'`)
-4. Push to the branch (`git push origin my-new-feature`)
-5. Create a new Pull Request
+## 📁 Project Structure
 
-## Contributors
+- `src/domain/`: Core game logic and entities.
+- `src/application/`: Application services and business logic.
+- `src/transport/`: WebSocket server and protocol handling.
+- `spec/`: Automated tests and specifications.
 
-- [pvelleleth](https://github.com/your-github-user) - creator and maintainer
+## 📄 License
+
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
+
+## 👨‍💻 Contributing
+
+Please see the root [README](../README.md) and [AGENTS.md](../AGENTS.md) for contribution guidelines.
