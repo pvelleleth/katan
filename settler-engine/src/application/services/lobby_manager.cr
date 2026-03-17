@@ -632,7 +632,7 @@ module Settler::Engine::Application
             id:                     player.id.value,
             name:                   player.name,
             victory_points:         player.victory_points,
-            victory_point_cards:    include_all_hands || player.id.value == viewer_player_id ? player.revealed_victory_point_cards : 0,
+            victory_point_cards:    include_all_hands || player.id.value == viewer_player_id || game_state.turn.phase == TurnPhase::GameOver ? player.revealed_victory_point_cards : 0,
             roads_left:             player.roads_left,
             settlements_left:       player.settlements_left,
             cities_left:            player.cities_left,

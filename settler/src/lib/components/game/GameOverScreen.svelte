@@ -15,6 +15,10 @@
 	$: winnerPlayerId = gameState.winner_player_id as string | null;
 	$: playerOrder = gameState.player_order as string[];
 
+	// Total VP = public (buildings, longest road, largest army) + hidden victory point cards
+	const totalVP = (p: any) =>
+		(p?.victory_points ?? 0) + (p?.victory_point_cards ?? 0);
+
 	// Merge game-state player data with lobby colors
 	$: rankedPlayers = [...playerOrder]
 		.map((id: string) => {
@@ -22,7 +26,7 @@
 			const lPlayer = players.find((p: any) => p.id === id);
 			return { ...gPlayer, color: lPlayer?.color || 'wood' };
 		})
-		.sort((a: any, b: any) => b.victory_points - a.victory_points);
+		.sort((a: any, b: any) => totalVP(b) - totalVP(a));
 
 	$: winner = rankedPlayers.find((p: any) => p.id === winnerPlayerId) ?? rankedPlayers[0];
 	$: iAmWinner = winnerPlayerId === playerId;
@@ -108,7 +112,7 @@
 				<h1 class="text-4xl font-black tracking-tight text-wood-dark">Game Over</h1>
 				<p class="text-center text-lg font-semibold text-wood-dark/70">
 					<span class={colorText[winner?.color] ?? 'text-wood'}>{winner?.name}</span> wins with
-					<span class="font-black text-amber-600">{winner?.victory_points} VP</span>!
+					<span class="font-black text-amber-600">{totalVP(winner)} VP</span>!
 				</p>
 			{/if}
 		</div>
@@ -167,7 +171,7 @@
 								? 'text-amber-600'
 								: 'text-wood-dark/60'}"
 						>
-							<span class="text-lg">{player.victory_points}</span>
+							<span class="text-lg">{totalVP(player)}</span>
 							<svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
 								<path
 									d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
