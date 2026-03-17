@@ -22,7 +22,7 @@ The repository is organized into two main sub-projects:
 | :--- | :--- |
 | **Frontend** | [SvelteKit](https://kit.svelte.dev/), [TypeScript](https://www.typescriptlang.org/), [Tailwind CSS](https://tailwindcss.com/) |
 | **Backend** | [Crystal](https://crystal-lang.org/) |
-| **Database** | [PostgreSQL](https://www.postgresql.org/) (Supabase) |
+| **Database** | [PostgreSQL](https://www.postgresql.org/) (Neon) |
 | **ORM** | [Drizzle ORM](https://orm.drizzle.team/) |
 | **Auth** | [Better Auth](https://better-auth.com/) |
 

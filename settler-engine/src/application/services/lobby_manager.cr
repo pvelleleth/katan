@@ -29,6 +29,7 @@ module Settler::Engine::Application
     end
 
     def get_or_create_lobby(id : String) : Domain::Lobby
+      restore_lobby_from_snapshot(id) unless @lobbies.has_key?(id)
       @lobbies[id] ||= Domain::Lobby.new(id)
     end
 
@@ -576,6 +577,240 @@ module Settler::Engine::Application
       @clients.delete(lobby_id)
     end
 
+    private def restore_lobby_from_snapshot(lobby_id : String) : Nil
+      return if @lobbies.has_key?(lobby_id)
+
+      persisted_snapshot = @game_event_store.load_game_snapshot(lobby_id)
+      return unless persisted_snapshot
+
+      snapshot = JSON.parse(persisted_snapshot.snapshot_json)
+      settings = snapshot["settings"]?.try(&.as_h) || parse_json_hash(persisted_snapshot.settings_json)
+      game_state = hydrate_game_state(snapshot, settings)
+      lobby = hydrate_lobby(lobby_id, game_state, settings)
+
+      @games[lobby_id] = game_state
+      @lobbies[lobby_id] = lobby
+    rescue ex
+      puts "Failed to restore game snapshot for #{lobby_id}: #{ex.message}"
+    end
+
+    private def hydrate_lobby(lobby_id : String, game_state : GameState, settings : Hash(String, JSON::Any)) : Domain::Lobby
+      lobby = Domain::Lobby.new(lobby_id)
+      lobby.settings = settings
+      game_state.player_order.each do |player_id|
+        player_state = game_state.player!(player_id)
+        player = Domain::Player.new(player_state.id.value, player_state.name)
+        player.connected = false
+        player.disconnected_at = Time.utc
+        player.ready = false
+        lobby.add_player(player)
+      end
+      lobby
+    end
+
+    private def hydrate_game_state(snapshot : JSON::Any, settings : Hash(String, JSON::Any)) : GameState
+      topology = BoardTopology.standard
+      players = hydrate_players(snapshot["players"].as_a)
+      board = hydrate_board(snapshot["board"], topology)
+      bank = hydrate_bank(snapshot["bank"])
+      player_order = snapshot["player_order"].as_a.map { |player_id| PlayerId.new(player_id.as_s) }
+      turn = hydrate_turn(snapshot["turn"])
+
+      GameState.new(
+        topology: topology,
+        players: players,
+        settings: settings,
+        board: board,
+        bank: bank,
+        player_order: player_order,
+        turn: turn,
+        version: snapshot["version"].as_i.to_i32,
+        last_roll: hydrate_last_roll(snapshot["last_roll"]?),
+        longest_road_player_id: snapshot.dig?("awards", "longest_road", "player_id").try { |value| PlayerId.new(value.as_s) },
+        longest_road_length: snapshot.dig?("awards", "longest_road", "length").try(&.as_i.to_i32) || 0,
+        largest_army_player_id: snapshot.dig?("awards", "largest_army", "player_id").try { |value| PlayerId.new(value.as_s) },
+        largest_army_size: snapshot.dig?("awards", "largest_army", "size").try(&.as_i.to_i32) || 0,
+        winner_player_id: snapshot["winner_player_id"]?.try { |value| value.raw.nil? ? nil : PlayerId.new(value.as_s) },
+        pending_robber_discards: hydrate_pending_discards(turn: snapshot["turn"]),
+        robber_eligible_victim_ids: snapshot["turn"]["robber_eligible_victim_ids"].as_a.map { |player_id| PlayerId.new(player_id.as_s) },
+        robber_return_phase: hydrate_turn_phase(snapshot["turn"]["robber_return_phase"]?),
+        pending_player_trade: hydrate_pending_trade(snapshot["turn"]["pending_player_trade"]?)
+      )
+    end
+
+    private def hydrate_players(players_json : Array(JSON::Any)) : Hash(PlayerId, PlayerState)
+      players_json.each_with_object({} of PlayerId => PlayerState) do |player_json, players|
+        player_id = PlayerId.new(player_json["id"].as_s)
+        player = PlayerState.new(player_id, player_json["name"].as_s)
+        hand_json = player_json["hand"]?.try(&.as_h)
+        development_cards_json = player_json["development_cards"]?.try(&.as_h)
+
+        if hand_json
+          player.hand.wood = hand_json["wood"].as_i.to_i32
+          player.hand.brick = hand_json["brick"].as_i.to_i32
+          player.hand.sheep = hand_json["sheep"].as_i.to_i32
+          player.hand.wheat = hand_json["wheat"].as_i.to_i32
+          player.hand.ore = hand_json["ore"].as_i.to_i32
+        end
+
+        if development_cards_json
+          hydrate_dev_card_hand(player.dev_cards, development_cards_json["playable"].as_h)
+          hydrate_dev_card_hand(player.newly_purchased_dev_cards, development_cards_json["newly_purchased"].as_h)
+        end
+
+        player.victory_points = player_json["victory_points"].as_i.to_i32
+        player.roads_left = player_json["roads_left"].as_i.to_i32
+        player.settlements_left = player_json["settlements_left"].as_i.to_i32
+        player.cities_left = player_json["cities_left"].as_i.to_i32
+        player.knights_played = player_json["knights_played"].as_i.to_i32
+        players[player_id] = player
+      end
+    end
+
+    private def hydrate_dev_card_hand(hand : DevCardHand, cards_json : Hash(String, JSON::Any)) : Nil
+      hand.knight = cards_json["knight"].as_i.to_i32
+      hand.victory_point = cards_json["victory_point"].as_i.to_i32
+      hand.road_building = cards_json["road_building"].as_i.to_i32
+      hand.year_of_plenty = cards_json["year_of_plenty"].as_i.to_i32
+      hand.monopoly = cards_json["monopoly"].as_i.to_i32
+    end
+
+    private def hydrate_board(board_json : JSON::Any, topology : BoardTopology) : BoardState
+      tile_states = board_json["tiles"].as_a.each_with_object({} of TileId => TileState) do |tile_json, tile_map|
+        tile_id = TileId.new(tile_json["id"].as_s)
+        tile_map[tile_id] = TileState.new(
+          parse_enum(Resource, tile_json["resource"].as_s),
+          tile_json["token"]?.try { |value| value.raw.nil? ? nil : value.as_i.to_i32 }
+        )
+      end
+
+      robber_tile = board_json["tiles"].as_a.find { |tile_json| tile_json["has_robber"].as_bool } || raise "snapshot missing robber tile"
+
+      buildings = board_json["vertices"].as_a.each_with_object({} of VertexId => Building) do |vertex_json, building_map|
+        next unless building_json = vertex_json["building"]?
+        next if building_json.raw.nil?
+
+        building_map[VertexId.new(vertex_json["id"].as_s)] = Building.new(
+          PlayerId.new(building_json["player_id"].as_s),
+          parse_enum(BuildingKind, building_json["kind"].as_s)
+        )
+      end
+
+      roads = board_json["edges"].as_a.each_with_object({} of EdgeId => Road) do |edge_json, road_map|
+        next unless road_json = edge_json["road"]?
+        next if road_json.raw.nil?
+
+        road_map[EdgeId.new(edge_json["id"].as_s)] = Road.new(PlayerId.new(road_json["player_id"].as_s))
+      end
+
+      harbors = board_json["harbors"].as_a.map do |harbor_json|
+        HarborAssignment.new(
+          HarborSlotId.new(harbor_json["id"].as_s),
+          {
+            VertexId.new(harbor_json["vertex_ids"].as_a[0].as_s),
+            VertexId.new(harbor_json["vertex_ids"].as_a[1].as_s),
+          },
+          parse_enum(HarborKind, harbor_json["kind"].as_s)
+        )
+      end
+
+      BoardState.new(
+        tile_states: tile_states,
+        robber_tile_id: TileId.new(robber_tile["id"].as_s),
+        harbors: harbors,
+        buildings: buildings,
+        roads: roads
+      )
+    end
+
+    private def hydrate_bank(bank_json : JSON::Any) : Bank
+      resources_json = bank_json["resources"]
+      dev_cards_json = bank_json["dev_cards"]
+
+      Bank.new(
+        resources: ResourcePile.new(
+          resources_json["wood"].as_i.to_i32,
+          resources_json["brick"].as_i.to_i32,
+          resources_json["sheep"].as_i.to_i32,
+          resources_json["wheat"].as_i.to_i32,
+          resources_json["ore"].as_i.to_i32
+        ),
+        knight: dev_cards_json["knight"].as_i.to_i32,
+        victory_point: dev_cards_json["victory_point"].as_i.to_i32,
+        road_building: dev_cards_json["road_building"].as_i.to_i32,
+        year_of_plenty: dev_cards_json["year_of_plenty"].as_i.to_i32,
+        monopoly: dev_cards_json["monopoly"].as_i.to_i32
+      )
+    end
+
+    private def hydrate_turn(turn_json : JSON::Any) : TurnState
+      TurnState.new(
+        current_player_id: PlayerId.new(turn_json["current_player_id"].as_s),
+        number: turn_json["number"].as_i.to_i32,
+        phase: parse_enum(TurnPhase, turn_json["phase"].as_s),
+        dev_card_played_this_turn: turn_json["dev_card_played_this_turn"].as_bool
+      )
+    end
+
+    private def hydrate_turn_phase(turn_phase_json : JSON::Any?) : TurnPhase?
+      return nil unless turn_phase_json
+      return nil if turn_phase_json.raw.nil?
+
+      parse_enum(TurnPhase, turn_phase_json.as_s)
+    end
+
+    private def hydrate_last_roll(last_roll_json : JSON::Any?) : DiceRoll?
+      return nil unless last_roll_json
+      return nil if last_roll_json.raw.nil?
+
+      DiceRoll.new(
+        last_roll_json["die_one"].as_i.to_i32,
+        last_roll_json["die_two"].as_i.to_i32
+      )
+    end
+
+    private def hydrate_pending_discards(turn : JSON::Any) : Hash(PlayerId, Int32)
+      turn["pending_robber_discards"].as_a.each_with_object({} of PlayerId => Int32) do |discard_json, discards|
+        discards[PlayerId.new(discard_json["player_id"].as_s)] = discard_json["count"].as_i.to_i32
+      end
+    end
+
+    private def hydrate_pending_trade(pending_trade_json : JSON::Any?) : PendingPlayerTrade?
+      return nil unless pending_trade_json
+      return nil if pending_trade_json.raw.nil?
+
+      responses = pending_trade_json["responses"].as_a.each_with_object({} of PlayerId => PlayerTradeResponseStatus) do |response_json, result|
+        result[PlayerId.new(response_json["player_id"].as_s)] = parse_enum(PlayerTradeResponseStatus, response_json["status"].as_s)
+      end
+
+      PendingPlayerTrade.new(
+        PlayerId.new(pending_trade_json["player_id"].as_s),
+        hydrate_resource_pile(pending_trade_json["offered"]),
+        hydrate_resource_pile(pending_trade_json["requested"]),
+        responses
+      )
+    end
+
+    private def hydrate_resource_pile(pile_json : JSON::Any) : ResourcePile
+      ResourcePile.new(
+        pile_json["wood"].as_i.to_i32,
+        pile_json["brick"].as_i.to_i32,
+        pile_json["sheep"].as_i.to_i32,
+        pile_json["wheat"].as_i.to_i32,
+        pile_json["ore"].as_i.to_i32
+      )
+    end
+
+    private def parse_json_hash(json : String?) : Hash(String, JSON::Any)
+      return Hash(String, JSON::Any).new unless json
+
+      JSON.parse(json).as_h.transform_values { |value| value }
+    end
+
+    private def parse_enum(enum_type : T.class, value : String) : T forall T
+      enum_type.parse(value)
+    end
+
     private def build_game_state(lobby : Domain::Lobby) : GameState
       GameState.new(
         topology: BoardTopology.standard,
@@ -612,6 +847,7 @@ module Settler::Engine::Application
           number:               game_state.turn.number,
           phase:                game_state.turn.phase.to_s,
           dev_card_played_this_turn: game_state.turn.dev_card_played_this_turn,
+          robber_return_phase:  game_state.robber_return_phase.try(&.to_s),
           pending_player_trade: serialize_pending_player_trade(game_state.pending_player_trade, viewer_player_id),
           pending_robber_discards: game_state.pending_robber_discards.map { |target_player_id, count|
             {

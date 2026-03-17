@@ -52,6 +52,12 @@ module Settler::Engine::Infrastructure::Persistence
       WHERE short_code = $1
     SQL
 
+    LOAD_SNAPSHOT_SQL = <<-SQL
+      SELECT snapshot::text, snapshot_version, settings::text
+      FROM game
+      WHERE short_code = $1
+    SQL
+
     def initialize(database_url : String)
       @db = DB.open(database_url)
     end
@@ -87,6 +93,22 @@ module Settler::Engine::Infrastructure::Persistence
     def save_game_snapshot(lobby_code : String, snapshot_json : String, snapshot_version : Int32) : Nil
       result = @db.exec(SAVE_SNAPSHOT_SQL, lobby_code, snapshot_json, snapshot_version)
       raise "No game found for lobby #{lobby_code}" if result.rows_affected.zero?
+    end
+
+    def load_game_snapshot(lobby_code : String) : PersistedGameSnapshot?
+      @db.query_one?(
+        LOAD_SNAPSHOT_SQL,
+        lobby_code,
+        as: {String?, Int32?, String?}
+      ).try do |snapshot_json, snapshot_version, settings_json|
+        next nil unless snapshot_json && snapshot_version
+
+        PersistedGameSnapshot.new(
+          snapshot_json: snapshot_json,
+          snapshot_version: snapshot_version,
+          settings_json: settings_json
+        )
+      end
     end
   end
 end

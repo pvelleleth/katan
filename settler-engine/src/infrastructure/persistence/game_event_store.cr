@@ -1,6 +1,11 @@
 require "json"
 
 module Settler::Engine::Infrastructure::Persistence
+  record PersistedGameSnapshot,
+    snapshot_json : String,
+    snapshot_version : Int32,
+    settings_json : String?
+
   abstract class GameEventStore
     abstract def update_game_settings(lobby_code : String, settings_json : String) : Nil
 
@@ -15,6 +20,8 @@ module Settler::Engine::Infrastructure::Persistence
     ) : Nil
 
     abstract def save_game_snapshot(lobby_code : String, snapshot_json : String, snapshot_version : Int32) : Nil
+
+    abstract def load_game_snapshot(lobby_code : String) : PersistedGameSnapshot?
   end
 
   class NullGameEventStore < GameEventStore
@@ -33,6 +40,10 @@ module Settler::Engine::Infrastructure::Persistence
     end
 
     def save_game_snapshot(lobby_code : String, snapshot_json : String, snapshot_version : Int32) : Nil
+    end
+
+    def load_game_snapshot(lobby_code : String) : PersistedGameSnapshot?
+      nil
     end
   end
 end

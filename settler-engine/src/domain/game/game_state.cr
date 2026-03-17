@@ -271,6 +271,29 @@ class GameState
     )
   end
 
+  def initialize(
+    @topology : BoardTopology,
+    @players : Hash(PlayerId, PlayerState),
+    @settings : Hash(String, JSON::Any),
+    @board : BoardState,
+    @bank : Bank,
+    @player_order : Array(PlayerId),
+    @turn : TurnState,
+    @version : Int32,
+    @rng : Random = Random.new,
+    @last_roll : DiceRoll? = nil,
+    @longest_road_player_id : PlayerId? = nil,
+    @longest_road_length : Int32 = 0,
+    @largest_army_player_id : PlayerId? = nil,
+    @largest_army_size : Int32 = 0,
+    @winner_player_id : PlayerId? = nil,
+    @pending_robber_discards : Hash(PlayerId, Int32) = {} of PlayerId => Int32,
+    @robber_eligible_victim_ids : Array(PlayerId) = [] of PlayerId,
+    @robber_return_phase : TurnPhase? = nil,
+    @pending_player_trade : PendingPlayerTrade? = nil,
+  )
+  end
+
   def player!(id : PlayerId) : PlayerState
     @players[id]? || raise "unknown player #{id.value}"
   end

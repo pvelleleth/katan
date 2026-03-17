@@ -22,6 +22,7 @@ class RecordingGameEventStore < Settler::Engine::Infrastructure::Persistence::Ga
     payload_json: String,
     message: String?)
   getter snapshots = [] of NamedTuple(lobby_code: String, snapshot_json: String, snapshot_version: Int32)
+  getter latest_snapshots = Hash(String, Settler::Engine::Infrastructure::Persistence::PersistedGameSnapshot).new
 
   def update_game_settings(lobby_code : String, settings_json : String) : Nil
     @settings_updates << {lobby_code: lobby_code, settings_json: settings_json}
@@ -49,6 +50,16 @@ class RecordingGameEventStore < Settler::Engine::Infrastructure::Persistence::Ga
 
   def save_game_snapshot(lobby_code : String, snapshot_json : String, snapshot_version : Int32) : Nil
     @snapshots << {lobby_code: lobby_code, snapshot_json: snapshot_json, snapshot_version: snapshot_version}
+    settings_json = @settings_updates.reverse_each.find(&.[:lobby_code].==(lobby_code)).try(&.[:settings_json])
+    @latest_snapshots[lobby_code] = Settler::Engine::Infrastructure::Persistence::PersistedGameSnapshot.new(
+      snapshot_json: snapshot_json,
+      snapshot_version: snapshot_version,
+      settings_json: settings_json
+    )
+  end
+
+  def load_game_snapshot(lobby_code : String) : Settler::Engine::Infrastructure::Persistence::PersistedGameSnapshot?
+    @latest_snapshots[lobby_code]?
   end
 end
 
