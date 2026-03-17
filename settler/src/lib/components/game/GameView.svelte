@@ -12,6 +12,9 @@
 
 	$: isGameOver = gameState?.turn?.phase === 'GameOver';
 
+	let showGameOverSummary = false;
+	let previousIsGameOver = false;
+
 	let costsPanelOpen = false;
 
 	function toggleCostsPanel() {
@@ -140,6 +143,16 @@
 		cancelPendingBoardBuildAction();
 	}
 
+	$: if (isGameOver !== previousIsGameOver) {
+		if (isGameOver) {
+			showGameOverSummary = true;
+		} else {
+			showGameOverSummary = false;
+		}
+
+		previousIsGameOver = isGameOver;
+	}
+
 	onDestroy(() => {
 		cancelPendingBoardDevCardAction();
 		cancelPendingBoardBuildAction();
@@ -158,6 +171,15 @@
 		<div class="relative flex-1 overflow-hidden">
 			<!-- Pinned Top Controls -->
 			<div class="absolute top-4 right-4 z-20 flex items-center gap-2">
+				{#if isGameOver && !showGameOverSummary}
+					<button
+						on:click={() => (showGameOverSummary = true)}
+						class="rounded-full border border-white/20 bg-ocean px-3 py-1 text-xs font-bold text-white shadow-lg shadow-ocean/30 transition-all hover:bg-ocean/90"
+						title="Show game summary"
+					>
+						Show Summary
+					</button>
+				{/if}
 				<button
 					on:click={toggleCostsPanel}
 					class="rounded-full border border-white/20 bg-black/10 px-3 py-1 text-xs font-bold text-white/50 backdrop-blur-md transition-all hover:bg-black/20 hover:text-white"
@@ -256,7 +278,13 @@
 		</div>
 	</main>
 
-	{#if isGameOver}
-		<GameOverScreen {gameState} {players} {playerId} {gameLog} />
+	{#if isGameOver && showGameOverSummary}
+		<GameOverScreen
+			{gameState}
+			{players}
+			{playerId}
+			{gameLog}
+			onShowBoard={() => (showGameOverSummary = false)}
+		/>
 	{/if}
 </div>
