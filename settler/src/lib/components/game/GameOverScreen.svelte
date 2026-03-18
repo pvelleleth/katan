@@ -271,9 +271,11 @@
 						{@const actualPct = totalRolls > 0 ? (count / totalRolls) * 100 : 0}
 						<div class="group relative flex flex-1 flex-col items-center">
 							<div
-								class="w-full rounded-t-sm bg-ocean transition-all duration-500"
+								class="relative w-full rounded-t-sm bg-ocean transition-all duration-500"
 								style="height: {highestRollCount > 0 ? (count / highestRollCount) * 80 : 0}px"
-							></div>
+							>
+								<span class="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-medium text-wood-dark/80">{count}</span>
+							</div>
 							<div
 								class="absolute h-1 w-1 rounded-full bg-brick opacity-40"
 								style="bottom: {highestRollCount > 0 ? ((theoreticalProbabilities[num] * totalRolls) / highestRollCount) * 80 + 24 : 24}px"
