@@ -105,7 +105,7 @@
 
 {#if open}
 	<div
-		class="absolute bottom-28 left-4 z-20 w-full max-w-lg rounded-2xl border border-wood/10 bg-white/95 p-3 shadow-xl backdrop-blur-md"
+		class="absolute bottom-33 left-4 z-20 w-full max-w-lg rounded-2xl border border-wood/10 bg-white/95 p-3 shadow-xl backdrop-blur-md"
 	>
 		<div class="flex flex-col gap-3">
 			<div class="flex items-center justify-between px-1">
