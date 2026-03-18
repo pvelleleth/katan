@@ -1,14 +1,20 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import ChatPanel from './ChatPanel.svelte';
+
+	type ChatMessage = {
+		playerId: string;
+		playerName: string;
+		message: string;
+		createdAt: string;
+	};
 
 	export let gameState: any;
 	export let players: any[]; // From lobby, has colors
 	export let playerId: string;
 	export let gameLog: { message: string; createdAt: string }[] = [];
+	export let chatMessages: ChatMessage[] = [];
 	export let sendGameAction: (action: string, payload?: any) => void;
-
-	let gameLogContainer: HTMLDivElement;
-	let previousGameLogLength = 0;
+	export let sendChatMessage: (message: string) => void;
 
 	$: currentPlayerId = gameState.turn.current_player_id;
 	$: playerOrder = gameState.player_order;
@@ -42,31 +48,20 @@
 		sendGameAction('robber_steal', { victim_player_id: victimId });
 	}
 
-	$: if (gameLog.length !== previousGameLogLength) {
-		previousGameLogLength = gameLog.length;
-		scrollGameLogToBottom();
-	}
-
-	async function scrollGameLogToBottom() {
-		await tick();
-		gameLogContainer?.scrollTo({
-			top: gameLogContainer.scrollHeight,
-			behavior: 'smooth'
-		});
-	}
+	let gameLogCollapsed = false;
 </script>
 
-<div class="flex h-full flex-col gap-6">
-	<div>
-		<h2 class="mb-4 text-xl font-black text-wood-dark">Players</h2>
-		<div class="flex flex-col gap-3">
+<div class="flex h-full flex-col gap-4">
+	<div class="shrink-0">
+		<h2 class="mb-2 text-xl font-black text-wood-dark">Players</h2>
+		<div class="flex flex-col gap-2">
 			{#each gamePlayers as player}
 				{@const isCurrentTurn = player.id === currentPlayerId}
 				{@const isMe = player.id === playerId}
 				{@const hasLongestRoad = player.has_longest_road}
 				{@const hasLargestArmy = player.has_largest_army}
 				<div
-					class="relative flex flex-col gap-2 rounded-2xl border-2 p-3 transition-all {isCurrentTurn
+					class="relative flex flex-col gap-2 rounded-2xl border-2 p-2 transition-all {isCurrentTurn
 						? 'border-ocean bg-white shadow-lg'
 						: 'border-wood/10 bg-white/50'} {player.isConnected ? '' : 'opacity-65'}"
 				>
@@ -242,24 +237,52 @@
 		</div>
 	</div>
 
-	<!-- Game Log -->
-	<div class="flex min-h-0 flex-1 flex-col rounded-2xl border-2 border-wood/10 bg-white/50 p-4">
-		<h3 class="mb-2 text-sm font-bold tracking-wider text-wood-light uppercase">Game Log</h3>
+	<div class="flex min-h-0 flex-1 flex-col gap-4">
 		<div
-			bind:this={gameLogContainer}
-			class="flex flex-1 flex-col gap-1 overflow-y-auto text-sm text-wood-dark/80"
+			class="flex flex-col rounded-2xl border-2 border-wood/10 bg-white/50 pt-2 px-3 pb-3 {gameLogCollapsed
+				? 'shrink-0 grow-0'
+				: 'min-h-0 flex-1'}"
 		>
-			{#each gameLog as log}
-				<div class="rounded bg-white/60 px-2 py-1 shadow-sm">
-					<span class="mr-1 text-[10px] text-wood-light">
-						{new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-					</span>
-					{log.message}
+			<button
+				on:click={() => (gameLogCollapsed = !gameLogCollapsed)}
+				class="flex w-full items-center justify-between gap-2 text-left {gameLogCollapsed ? '' : 'mb-1.5'}"
+			>
+				<h3 class="text-sm font-bold tracking-wider text-wood-light uppercase">Game Log</h3>
+				<svg
+					class="h-4 w-4 shrink-0 text-wood-light transition-transform {gameLogCollapsed ? '' : 'rotate-90'}"
+					fill="none"
+					stroke="currentColor"
+					viewBox="0 0 24 24"
+				>
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+				</svg>
+			</button>
+			{#if !gameLogCollapsed}
+				<div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto text-sm text-wood-dark/80">
+					{#each gameLog as log}
+						<div class="rounded bg-white/60 px-2 py-1 shadow-sm">
+							<span class="mr-1 text-[10px] text-wood-light">
+								{new Date(log.createdAt).toLocaleTimeString([], {
+									hour: '2-digit',
+									minute: '2-digit'
+								})}
+							</span>
+							{log.message}
+						</div>
+					{/each}
+					<div class="mt-2 text-xs text-wood-light italic">
+						It is {gamePlayers.find((p: any) => p.id === currentPlayerId)?.name}'s turn.
+					</div>
 				</div>
-			{/each}
-			<div class="mt-2 text-xs text-wood-light italic">
-				It is {gamePlayers.find((p: any) => p.id === currentPlayerId)?.name}'s turn.
-			</div>
+			{/if}
 		</div>
+
+		<ChatPanel
+			messages={chatMessages}
+			{playerId}
+			onSend={sendChatMessage}
+			title="Chat"
+			emptyMessage="Use chat to coordinate trades, setup, and table talk."
+		/>
 	</div>
 </div>

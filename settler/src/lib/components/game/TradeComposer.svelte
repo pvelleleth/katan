@@ -20,9 +20,9 @@
 		offeredResource: ResourceKey,
 		requestedResource: ResourceKey
 	) => void;
+	export let offered = createEmptyResourcePile();
+	export let requested = createEmptyResourcePile();
 
-	let offered = createEmptyResourcePile();
-	let requested = createEmptyResourcePile();
 	let bankOfferedResource: ResourceKey = 'wood';
 	let bankRequestedResource: ResourceKey = 'brick';
 
@@ -33,6 +33,15 @@
 	$: bankRate = bankTradeRates[bankOfferedResource];
 	$: harborAdvantageResources = resourceKeys.filter((resource) => bankTradeRates[resource] < 4);
 	$: hasHarborAdvantage = harborAdvantageResources.length > 0;
+
+	const resourceColors: Record<ResourceKey, string> = {
+		wood: 'bg-forest text-white',
+		brick: 'bg-brick text-white',
+		sheep: 'bg-[#90EE90] text-wood-dark',
+		wheat: 'bg-[#FBC02D] text-wood-dark',
+		ore: 'bg-[#708090] text-white'
+	};
+
 	$: canSubmitPlayerTrade =
 		hasAnyResources(offered) &&
 		hasAnyResources(requested) &&
@@ -42,6 +51,22 @@
 		!pendingTrade &&
 		bankOfferedResource !== bankRequestedResource &&
 		(hand[bankOfferedResource] ?? 0) >= bankRate;
+
+	const resourceIcons: Record<ResourceKey, string> = {
+		wood: '<path d="M12 2L4 10h3v4H4l8 8 8-8h-3v-4h3z" />',
+		brick: '<path d="M2 4h20v4H2zm0 6h9v4H2zm11 0h9v4h-9zm-11 6h20v4H2z" />',
+		sheep: '<path d="M18.5 8c-1.2 0-2.2.8-2.4 1.9-.5-.3-1.1-.4-1.6-.4-1.8 0-3.3 1.3-3.6 3-.4-.3-.9-.5-1.4-.5-1.9 0-3.5 1.6-3.5 3.5 0 .3 0 .6.1.8-.8.4-1.4 1.2-1.4 2.2 0 1.4 1.1 2.5 2.5 2.5h11.5c1.9 0 3.5-1.6 3.5-3.5 0-1.6-1.1-2.9-2.6-3.3.1-.4.1-.8.1-1.2 0-2.8-2.2-5-5-5z" />',
+		wheat: '<path d="M12 2C7 2 3 6 3 11c0 2.2.8 4.2 2.1 5.7L2 22l2 1 3.3-3.3C8.8 20.6 10.3 21 12 21c5 0 9-4 9-9s-4-9-9-9zm0 17c-4.4 0-8-3.6-8-8s3.6-8 8-8 8 3.6 8 8-3.6 8-8 8z" /><path d="M12 5v14M8 8l4 4M16 8l-4 4M8 14l4-4M16 14l-4-4" stroke="currentColor" stroke-width="2" />',
+		ore: '<path d="M12 2L2 22h20L12 2zm0 6l5 10H7l5-10z" />'
+	};
+
+	$: if (mode === 'bank') {
+		// In bank mode, sync bankOfferedResource with what's in 'offered' pile
+		const offeredRes = resourceKeys.find((r) => offered[r] > 0);
+		if (offeredRes) {
+			bankOfferedResource = offeredRes;
+		}
+	}
 
 	$: if (!open) {
 		resetSelections();
@@ -80,212 +105,204 @@
 
 {#if open}
 	<div
-		class="absolute right-4 bottom-28 left-4 z-20 mx-auto w-full max-w-5xl rounded-3xl border-2 border-wood/10 bg-white/95 p-5 shadow-2xl backdrop-blur-md"
+		class="absolute bottom-28 left-4 z-20 w-full max-w-lg rounded-2xl border border-wood/10 bg-white/95 p-3 shadow-xl backdrop-blur-md"
 	>
-		<div class="flex flex-col gap-5">
-			<div class="flex items-start justify-between gap-4">
-				<div>
-					<h3 class="text-xl font-black text-wood-dark">Trade</h3>
-					<p class="text-sm font-semibold text-wood-light">
-						Choose what you give and what you want back.
-					</p>
+		<div class="flex flex-col gap-3">
+			<div class="flex items-center justify-between px-1">
+				<div class="flex items-center gap-3">
+					<div class="flex gap-1 rounded-lg bg-wood/5 p-0.5">
+						<button
+							on:click={() => onModeChange('player')}
+							class="rounded-md px-2.5 py-1 text-[10px] font-black transition-all {mode ===
+							'player'
+								? 'bg-white text-ocean shadow-sm'
+								: 'text-wood-light hover:text-wood-dark'}"
+						>
+							Player
+						</button>
+						<button
+							on:click={() => onModeChange('bank')}
+							class="rounded-md px-2.5 py-1 text-[10px] font-black transition-all {mode ===
+							'bank'
+								? 'bg-white text-ocean shadow-sm'
+								: 'text-wood-light hover:text-wood-dark'}"
+						>
+							Bank
+						</button>
+					</div>
+					<span class="text-[10px] font-black tracking-widest text-wood-light uppercase">
+						{mode === 'player' ? 'Propose Trade' : 'Bank Exchange'}
+					</span>
 				</div>
 				<button
 					on:click={onClose}
-					class="rounded-full border border-wood/15 px-3 py-1 text-xs font-black tracking-wider text-wood-dark uppercase transition-colors hover:border-brick/30 hover:text-brick"
+					class="text-[10px] font-black tracking-widest text-wood-light uppercase hover:text-brick"
 				>
-					Close
+					Cancel
 				</button>
 			</div>
 
-			<div class="flex gap-2">
-				<button
-					on:click={() => onModeChange('player')}
-					class="rounded-2xl px-4 py-2 text-sm font-black transition-colors {mode === 'player'
-						? 'bg-ocean text-white'
-						: 'bg-wood/10 text-wood-dark hover:bg-wood/15'}"
-				>
-					Player Trade
-				</button>
-				<button
-					on:click={() => onModeChange('bank')}
-					class="rounded-2xl px-4 py-2 text-sm font-black transition-colors {mode === 'bank'
-						? 'bg-ocean text-white'
-						: 'bg-wood/10 text-wood-dark hover:bg-wood/15'}"
-				>
-					Bank Trade
-				</button>
+			<div class="flex flex-col gap-2 rounded-xl bg-parchment/40 p-3">
+				<!-- TOP ROW: WANT -->
+				<div class="flex items-center justify-between gap-3">
+					<div class="flex items-center gap-3">
+						<div class="flex h-9 w-9 items-center justify-center rounded-full bg-forest/10 text-forest">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="20"
+								height="20"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="3.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M12 5v14M5 12l7 7 7-7" />
+							</svg>
+						</div>
+						<div class="flex flex-col items-start">
+							<span class="text-[9px] font-black text-wood-light uppercase">Want</span>
+							<div class="flex flex-wrap gap-1.5">
+								{#each resourceKeys.filter((r) => requested[r] > 0) as r}
+									<div class="relative h-12" style="width: {32 + (requested[r] - 1) * 8}px">
+										{#each Array(requested[r]) as _, i}
+											<button
+												on:click={() => updatePile('requested', r, -1)}
+												class="group absolute top-0 flex h-12 w-8 flex-col items-center justify-center rounded-md border border-white/40 p-1 shadow-sm transition-all hover:-translate-y-1 hover:scale-110 active:scale-95 {resourceColors[
+													r
+												]}"
+												style="left: {i * 8}px; z-index: {i};"
+											>
+												<svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor">
+													{@html resourceIcons[r]}
+												</svg>
+												<div
+													class="absolute -top-1 -right-1 hidden h-3 w-3 items-center justify-center rounded-full bg-brick text-[8px] font-black text-white group-hover:flex"
+												>
+													×
+												</div>
+											</button>
+										{/each}
+									</div>
+								{/each}
+								{#if !hasAnyResources(requested)}
+									<span class="text-[10px] font-bold text-wood-light/50 italic"
+										>Select cards to get</span
+									>
+								{/if}
+							</div>
+						</div>
+					</div>
+					<div class="flex gap-1">
+						{#each resourceKeys as r}
+							<button
+								on:click={() => {
+									if (mode === 'bank') {
+										bankRequestedResource = r;
+										requested = { ...createEmptyResourcePile(), [r]: 1 };
+									} else {
+										updatePile('requested', r, 1);
+									}
+								}}
+								class="flex h-10 w-7 flex-col items-center justify-center rounded-md border transition-all hover:scale-105 {resourceColors[
+									r
+								]} {requested[r] > 0
+									? 'ring-2 ring-forest ring-offset-1'
+									: 'opacity-60 grayscale-[0.5] hover:opacity-100 hover:grayscale-0'}"
+							>
+								<svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="currentColor">
+									{@html resourceIcons[r]}
+								</svg>
+								<span class="mt-0.5 text-[7px] font-black uppercase"
+									>{resourceLabels[r][0]}</span
+								>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				<!-- DIVIDER -->
+				<div class="h-px w-full bg-wood/5"></div>
+
+				<!-- BOTTOM ROW: GIVE -->
+				<div class="flex items-center justify-between gap-3">
+					<div class="flex items-center gap-3">
+						<div class="flex h-9 w-9 items-center justify-center rounded-full bg-red-500/10 text-red-500">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="20"
+								height="20"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="3.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M12 19V5M5 12l7-7 7 7" />
+							</svg>
+						</div>
+						<div class="flex flex-col items-start">
+							<span class="text-[9px] font-black text-wood-light uppercase">Give</span>
+							<div class="flex flex-wrap gap-1.5">
+								{#each resourceKeys.filter((r) => offered[r] > 0) as r}
+									<div class="relative h-12" style="width: {32 + (offered[r] - 1) * 8}px">
+										{#each Array(offered[r]) as _, i}
+											<button
+												on:click={() => updatePile('offered', r, -1)}
+												class="group absolute top-0 flex h-12 w-8 flex-col items-center justify-center rounded-md border border-white/40 p-1 shadow-sm transition-all hover:-translate-y-1 hover:scale-110 active:scale-95 {resourceColors[
+													r
+												]}"
+												style="left: {i * 8}px; z-index: {i};"
+											>
+												<svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor">
+													{@html resourceIcons[r]}
+												</svg>
+												<div
+													class="absolute -top-1 -right-1 hidden h-3 w-3 items-center justify-center rounded-full bg-brick text-[8px] font-black text-white group-hover:flex"
+												>
+													×
+												</div>
+											</button>
+										{/each}
+									</div>
+								{/each}
+								{#if !hasAnyResources(offered)}
+									<span class="text-[10px] font-bold text-wood-light/50 italic"
+										>Click cards below</span
+									>
+								{/if}
+							</div>
+						</div>
+					</div>
+				</div>
 			</div>
 
-			{#if pendingTrade}
-				<div
-					class="rounded-2xl border border-brick/20 bg-brick/10 px-4 py-3 text-sm font-semibold text-brick"
-				>
-					Finish or cancel the current player trade before creating another one.
-				</div>
-			{/if}
-
-			{#if hasHarborAdvantage}
-				<div
-					class="rounded-2xl border border-ocean/20 bg-ocean/10 px-4 py-3 text-sm font-semibold text-ocean"
-				>
-					Harbor advantage:
-					{#each harborAdvantageResources as resource, index}
-						<span class="font-black">{resourceLabels[resource]} {bankTradeRates[resource]}:1</span
-						>{index < harborAdvantageResources.length - 1 ? ', ' : ''}
-					{/each}
-				</div>
-			{/if}
-
-			{#if mode === 'player'}
-				<div class="grid gap-5 lg:grid-cols-2">
-					<div class="rounded-2xl border border-wood/10 bg-parchment/70 p-4">
-						<div class="mb-3 flex items-center justify-between">
-							<h4 class="text-sm font-black tracking-wider text-wood-dark uppercase">You Give</h4>
-							<span class="text-xs font-bold text-wood-light">From your hand</span>
-						</div>
-						<div class="flex flex-col gap-2">
-							{#each resourceKeys as resource}
-								<div class="flex items-center justify-between rounded-2xl bg-white/80 px-3 py-2">
-									<div>
-										<div class="font-bold text-wood-dark">{resourceLabels[resource]}</div>
-										<div class="text-xs font-semibold text-wood-light">
-											Have {hand[resource] ?? 0}
-										</div>
-									</div>
-									<div class="flex items-center gap-2">
-										<button
-											on:click={() => updatePile('offered', resource, -1)}
-											disabled={offered[resource] === 0}
-											class="flex h-8 w-8 items-center justify-center rounded-full bg-brick text-white disabled:cursor-not-allowed disabled:opacity-40"
-										>
-											-
-										</button>
-										<div class="w-8 text-center font-black text-wood-dark">{offered[resource]}</div>
-										<button
-											on:click={() => updatePile('offered', resource, 1)}
-											disabled={offered[resource] >= (hand[resource] ?? 0)}
-											class="flex h-8 w-8 items-center justify-center rounded-full bg-forest text-white disabled:cursor-not-allowed disabled:opacity-40"
-										>
-											+
-										</button>
-									</div>
-								</div>
-							{/each}
-						</div>
-					</div>
-
-					<div class="rounded-2xl border border-wood/10 bg-parchment/70 p-4">
-						<div class="mb-3 flex items-center justify-between">
-							<h4 class="text-sm font-black tracking-wider text-wood-dark uppercase">You Want</h4>
-							<span class="text-xs font-bold text-wood-light">Other players can accept</span>
-						</div>
-						<div class="flex flex-col gap-2">
-							{#each resourceKeys as resource}
-								<div class="flex items-center justify-between rounded-2xl bg-white/80 px-3 py-2">
-									<div class="font-bold text-wood-dark">{resourceLabels[resource]}</div>
-									<div class="flex items-center gap-2">
-										<button
-											on:click={() => updatePile('requested', resource, -1)}
-											disabled={requested[resource] === 0}
-											class="flex h-8 w-8 items-center justify-center rounded-full bg-brick text-white disabled:cursor-not-allowed disabled:opacity-40"
-										>
-											-
-										</button>
-										<div class="w-8 text-center font-black text-wood-dark">
-											{requested[resource]}
-										</div>
-										<button
-											on:click={() => updatePile('requested', resource, 1)}
-											class="flex h-8 w-8 items-center justify-center rounded-full bg-forest text-white"
-										>
-											+
-										</button>
-									</div>
-								</div>
-							{/each}
-						</div>
-					</div>
-				</div>
-
-				<div class="flex justify-end">
-					<button
-						on:click={submitPlayerTrade}
-						disabled={!canSubmitPlayerTrade}
-						class="rounded-2xl bg-ocean px-6 py-3 font-black text-white shadow-md transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
-					>
-						Propose Trade
-					</button>
-				</div>
-			{:else}
-				<div class="grid gap-5 lg:grid-cols-[1fr_1fr_auto]">
-					<div class="rounded-2xl border border-wood/10 bg-parchment/70 p-4">
-						<h4 class="mb-3 text-sm font-black tracking-wider text-wood-dark uppercase">
-							Give To Bank
-						</h4>
-						<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-							{#each resourceKeys as resource}
-								<button
-									on:click={() => (bankOfferedResource = resource)}
-									class="rounded-2xl border px-3 py-3 text-left transition-colors {bankOfferedResource ===
-									resource
-										? 'border-ocean bg-ocean/10'
-										: 'border-wood/10 bg-white/80 hover:bg-white'}"
-								>
-									<div class="font-bold text-wood-dark">{resourceLabels[resource]}</div>
-									<div class="text-xs font-semibold text-wood-light">
-										Rate {bankTradeRates[resource]}:1, have {hand[resource] ?? 0}
-									</div>
-								</button>
-							{/each}
-						</div>
-					</div>
-
-					<div class="rounded-2xl border border-wood/10 bg-parchment/70 p-4">
-						<h4 class="mb-3 text-sm font-black tracking-wider text-wood-dark uppercase">
-							Get From Bank
-						</h4>
-						<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-							{#each resourceKeys as resource}
-								<button
-									on:click={() => (bankRequestedResource = resource)}
-									class="rounded-2xl border px-3 py-3 text-left transition-colors {bankRequestedResource ===
-									resource
-										? 'border-forest bg-forest/10'
-										: 'border-wood/10 bg-white/80 hover:bg-white'}"
-								>
-									<div class="font-bold text-wood-dark">{resourceLabels[resource]}</div>
-								</button>
-							{/each}
-						</div>
-					</div>
-
-					<div
-						class="flex flex-col justify-between rounded-2xl border border-wood/10 bg-white/80 p-4"
-					>
-						<div>
-							<div class="text-sm font-black tracking-wider text-wood-dark uppercase">Summary</div>
-							<p class="mt-2 text-sm font-semibold text-wood-light">
-								Trade {bankRate}
-								{resourceLabels[bankOfferedResource]} for 1
-								{resourceLabels[bankRequestedResource]}.
-							</p>
+			<div class="flex items-center justify-between pt-1">
+				<div class="flex items-center gap-2">
+					{#if mode === 'bank'}
+						{@const canBank = canSubmitBankTrade}
+						<div class="text-[10px] font-bold text-wood-light">
 							{#if bankRate < 4}
-								<p class="mt-2 text-xs font-black tracking-wider text-ocean uppercase">
-									Harbor rate applied
-								</p>
+								<span class="text-ocean">Harbor Rate {bankRate}:1</span>
+							{:else}
+								Standard 4:1
 							{/if}
 						</div>
-						<button
-							on:click={submitBankTrade}
-							disabled={!canSubmitBankTrade}
-							class="mt-4 rounded-2xl bg-wood px-5 py-3 font-black text-white shadow-md transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
-						>
-							Trade With Bank
-						</button>
-					</div>
+					{/if}
 				</div>
-			{/if}
+				<button
+					on:click={mode === 'player' ? submitPlayerTrade : submitBankTrade}
+					disabled={mode === 'player' ? !canSubmitPlayerTrade : !canSubmitBankTrade}
+					class="rounded-xl px-6 py-2 text-xs font-black text-white shadow-md transition-all hover:scale-105 active:scale-95 disabled:opacity-50 {mode ===
+					'player'
+						? 'bg-ocean'
+						: 'bg-forest'}"
+				>
+					{mode === 'player' ? 'Propose Trade' : 'Exchange with Bank'}
+				</button>
+			</div>
 		</div>
 	</div>
 {/if}

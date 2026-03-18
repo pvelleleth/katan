@@ -8,7 +8,14 @@
 	import TradeOfferPopup from './TradeOfferPopup.svelte';
 	import GameOverScreen from './GameOverScreen.svelte';
 	import BuildCostsPanel from './BuildCostsPanel.svelte';
-	import type { ResourceKey, ResourcePile } from './trade';
+	import { createEmptyResourcePile, type ResourceKey, type ResourcePile } from './trade';
+
+	type ChatMessage = {
+		playerId: string;
+		playerName: string;
+		message: string;
+		createdAt: string;
+	};
 
 	$: isGameOver = gameState?.turn?.phase === 'GameOver';
 	$: timerEnabled = !!gameState?.turn?.timer_enabled;
@@ -42,7 +49,9 @@
 	export let playerId: string;
 	export let players: any[];
 	export let gameLog: { message: string; createdAt: string }[] = [];
+	export let chatMessages: ChatMessage[] = [];
 	export let sendGameAction: (action: string, payload?: any) => void;
+	export let sendChatMessage: (message: string) => void;
 	export let tradeComposerOpen = false;
 	export let tradeComposerMode: 'player' | 'bank' = 'player';
 	export let onOpenTradeComposer: (mode?: 'player' | 'bank') => void;
@@ -58,6 +67,42 @@
 	export let onCancelPlayerTrade: () => void;
 	export let onFinalizePlayerTrade: (partnerPlayerId: string) => void;
 	export let onLeaveGame: () => void;
+
+	let tradeOffered = createEmptyResourcePile();
+	let tradeRequested = createEmptyResourcePile();
+
+	function handleResourceClick(resource: ResourceKey) {
+		if (!tradeComposerOpen) return;
+
+		// In both modes, clicking a resource in the hand increments the offered amount
+		const myHand = gameState?.players?.find((p: any) => p.id === playerId)?.hand ?? {};
+		const currentOffered = tradeOffered[resource] || 0;
+		const available = myHand[resource] || 0;
+
+		if (tradeComposerMode === 'bank') {
+			// In bank mode, clicking a resource sets it as the ONLY offered resource
+			tradeOffered = { ...createEmptyResourcePile(), [resource]: available };
+		} else if (currentOffered < available) {
+			tradeOffered = { ...tradeOffered, [resource]: currentOffered + 1 };
+		}
+	}
+
+	function handleTradeComposerModeChange(mode: 'player' | 'bank') {
+		tradeOffered = createEmptyResourcePile();
+		tradeRequested = createEmptyResourcePile();
+		onTradeComposerModeChange(mode);
+	}
+
+	function handleCloseTradeComposer() {
+		tradeOffered = createEmptyResourcePile();
+		tradeRequested = createEmptyResourcePile();
+		onCloseTradeComposer();
+	}
+
+	$: if (!tradeComposerOpen) {
+		tradeOffered = createEmptyResourcePile();
+		tradeRequested = createEmptyResourcePile();
+	}
 
 	let pendingBoardDevCardAction: 'knight' | 'road_building' | null = null;
 	let pendingBoardBuildAction: 'city' | null = null;
@@ -194,7 +239,15 @@
 <div class="flex h-screen w-full flex-col lg:flex-row">
 	<!-- Left Sidebar: Player List & Game Log -->
 	<aside class="flex w-full flex-col bg-parchment/60 p-4 lg:w-80">
-		<PlayerList {gameState} {players} {playerId} {gameLog} {sendGameAction} />
+		<PlayerList
+			{gameState}
+			{players}
+			{playerId}
+			{gameLog}
+			{chatMessages}
+			{sendGameAction}
+			{sendChatMessage}
+		/>
 	</aside>
 
 	<!-- Main Area: Game Board -->
@@ -205,9 +258,11 @@
 				<div
 					class="absolute top-4 left-4 z-20 rounded-2xl border border-white/20 bg-black/25 px-4 py-3 text-white shadow-lg backdrop-blur-md"
 				>
-					<div class="text-[10px] font-black tracking-[0.2em] text-white/70 uppercase">Turn Timer</div>
+					<div class="text-[10px] font-black tracking-[0.2em] text-white/70 uppercase">
+						Turn Timer
+					</div>
 					<div class="mt-1 flex items-end gap-3">
-						<div class="text-3xl font-black leading-none">{timerLabel}</div>
+						<div class="text-3xl leading-none font-black">{timerLabel}</div>
 						<div class="text-xs font-semibold text-white/70">{gameState.turn.phase}</div>
 					</div>
 				</div>
@@ -262,7 +317,8 @@
 				<div
 					class="absolute right-6 bottom-6 z-10 flex flex-col items-center gap-2 rounded-2xl border-2 border-wood/10 bg-white/90 p-3 shadow-lg backdrop-blur-md"
 				>
-					<span class="text-[10px] font-bold tracking-wider text-wood-light uppercase">LAST ROLL</span
+					<span class="text-[10px] font-bold tracking-wider text-wood-light uppercase"
+						>LAST ROLL</span
 					>
 					<div class="flex gap-2">
 						<div
@@ -295,8 +351,10 @@
 			mode={tradeComposerMode}
 			{gameState}
 			{playerId}
-			onClose={onCloseTradeComposer}
-			onModeChange={onTradeComposerModeChange}
+			bind:offered={tradeOffered}
+			bind:requested={tradeRequested}
+			onClose={handleCloseTradeComposer}
+			onModeChange={handleTradeComposerModeChange}
 			{onSubmitPlayerTrade}
 			{onSubmitBankTrade}
 		/>
@@ -318,6 +376,8 @@
 				onStartCityPlacement={startCityPlacement}
 				onCancelPendingBoardBuildAction={cancelPendingBoardBuildAction}
 				onConfirmSingleRoadBuildingPlacement={confirmSingleRoadBuildingPlacement}
+				onResourceClick={handleResourceClick}
+				tradeOffered={tradeOffered}
 			/>
 		</div>
 	</main>

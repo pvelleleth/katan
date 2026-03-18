@@ -64,6 +64,64 @@ class RecordingGameEventStore < Settler::Engine::Infrastructure::Persistence::Ga
 end
 
 describe Settler::Engine::Application::LobbyManager do
+  it "persists and broadcasts lobby chat messages" do
+    store = RecordingGameEventStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store)
+    first_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    first_client.lobby_id = "CHAT01"
+    second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    second_client.lobby_id = "CHAT01"
+
+    manager.handle_join("CHAT01", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("CHAT01", "player-2", "Bob", second_client)
+
+    manager.send_chat_message("CHAT01", "player-1", "  hello table  ").should be_true
+
+    store.events.last[:event_type].should eq("chat_message")
+    store.events.last[:actor_player_id].should eq("player-1")
+    store.events.last[:message].should eq("hello table")
+
+    payload = JSON.parse(store.events.last[:payload_json])
+    payload["player_id"].as_s.should eq("player-1")
+    payload["player_name"].as_s.should eq("Alice")
+    payload["message"].as_s.should eq("hello table")
+    payload["created_at"].as_s.should_not be_empty
+  end
+
+  it "rejects empty, oversized, and unauthenticated chat messages" do
+    store = RecordingGameEventStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store)
+    client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    client.lobby_id = "CHAT02"
+
+    manager.handle_join("CHAT02", "player-1", "Alice", client, "player-1")
+
+    manager.send_chat_message("CHAT02", "player-1", "   ").should be_false
+    manager.send_chat_message("CHAT02", "player-1", "a" * 501).should be_false
+    manager.send_chat_message("CHAT02", "ghost", "hello").should be_false
+
+    store.events.should be_empty
+  end
+
+  it "allows chat before and after the game starts" do
+    store = RecordingGameEventStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store)
+    first_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    first_client.lobby_id = "CHAT03"
+    second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+    second_client.lobby_id = "CHAT03"
+
+    manager.handle_join("CHAT03", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("CHAT03", "player-2", "Bob", second_client)
+
+    manager.send_chat_message("CHAT03", "player-1", "pregame").should be_true
+    manager.start_game("CHAT03")
+    manager.send_chat_message("CHAT03", "player-2", "ingame").should be_true
+
+    chat_events = store.events.select { |event| event[:event_type] == "chat_message" }
+    chat_events.map(&.[:message]).should eq(["pregame", "ingame"])
+  end
+
   it "serializes turn timer metadata and resets durations by phase" do
     store = RecordingGameEventStore.new
     manager = Settler::Engine::Application::LobbyManager.new(store, FixedDiceRoller.new([DiceRoll.new(1, 1)]))
@@ -77,7 +135,7 @@ describe Settler::Engine::Application::LobbyManager do
 
     lobby = manager.get_or_create_lobby("TIME01")
     lobby.settings = {
-      "turnTimeSeconds" => JSON::Any.new(30),
+      "turnTimeSeconds"  => JSON::Any.new(30),
       "turnTimerEnabled" => JSON::Any.new(true),
     }
 
@@ -121,7 +179,7 @@ describe Settler::Engine::Application::LobbyManager do
     manager.handle_join("TIME02", "player-2", "Bob", second_client)
     manager.handle_join("TIME02", "player-3", "Cara", third_client)
     manager.get_or_create_lobby("TIME02").settings = {
-      "turnTimeSeconds" => JSON::Any.new(30),
+      "turnTimeSeconds"  => JSON::Any.new(30),
       "turnTimerEnabled" => JSON::Any.new(true),
     }
 
@@ -156,7 +214,7 @@ describe Settler::Engine::Application::LobbyManager do
     manager.handle_join("TIME07", "player-1", "Alice", first_client, "player-1")
     manager.handle_join("TIME07", "player-2", "Bob", second_client)
     manager.get_or_create_lobby("TIME07").settings = {
-      "turnTimeSeconds" => JSON::Any.new(30),
+      "turnTimeSeconds"  => JSON::Any.new(30),
       "turnTimerEnabled" => JSON::Any.new(true),
     }
 

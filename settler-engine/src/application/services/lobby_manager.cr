@@ -17,7 +17,8 @@ module Settler::Engine::Application
 
   class LobbyManager
     DISCONNECT_GRACE_PERIOD = 60.seconds
-    TIMER_BONUS_SECONDS = 10
+    TIMER_BONUS_SECONDS     =  10
+    CHAT_MESSAGE_MAX_LENGTH = 500
 
     property lobbies = Hash(String, Domain::Lobby).new
     property clients = Hash(String, Array(Transport::WebSocket::Client)).new
@@ -166,6 +167,32 @@ module Settler::Engine::Application
       puts "Failed to persist game settings for #{lobby_id}: #{ex.message}"
     end
 
+    def send_chat_message(lobby_id : String, player_id : String, message : String) : Bool
+      lobby = get_or_create_lobby(lobby_id)
+      player = lobby.find_player(player_id)
+      return false unless player
+      return false unless player.connected
+
+      normalized_message = message.strip
+      return false if normalized_message.empty?
+      return false if normalized_message.size > CHAT_MESSAGE_MAX_LENGTH
+
+      created_at = Time.utc
+      payload_json = {
+        player_id:   player_id,
+        player_name: player.name,
+        message:     normalized_message,
+        created_at:  created_at.to_rfc3339,
+      }.to_json
+
+      log_event(lobby_id, "chat_message", player_id, payload_json, normalized_message)
+      broadcast_chat_message(lobby_id, player_id, player.name, normalized_message, created_at)
+      true
+    rescue ex
+      puts "Failed to send chat message for #{lobby_id}: #{ex.message}"
+      false
+    end
+
     def broadcast_lobby_state(lobby_id : String)
       if lobby = @lobbies[lobby_id]?
         if list = @clients[lobby_id]?
@@ -200,8 +227,8 @@ module Settler::Engine::Application
 
       if list = @clients[lobby_id]?
         event_json = {
-          type:    "game_log",
-          message: "Game started.",
+          type:       "game_log",
+          message:    "Game started.",
           event_type: "game_started",
         }.to_json
         list.each do |client|
@@ -223,7 +250,7 @@ module Settler::Engine::Application
 
       game_state.apply!(event)
       sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus && !setup_phase?(previous_phase))
-      
+
       message = "#{game_state.player!(event.player_id).name} placed a settlement."
       if free && game_state.turn.phase == TurnPhase::Setup2Road
         # They just placed their second settlement and got resources
@@ -919,17 +946,17 @@ module Settler::Engine::Application
         version:      game_state.version,
         player_order: game_state.player_order.map(&.value),
         turn:         {
-          current_player_id:    game_state.turn.current_player_id.value,
-          number:               game_state.turn.number,
-          phase:                game_state.turn.phase.to_s,
+          current_player_id:         game_state.turn.current_player_id.value,
+          number:                    game_state.turn.number,
+          phase:                     game_state.turn.phase.to_s,
           dev_card_played_this_turn: game_state.turn.dev_card_played_this_turn,
-          timer_enabled:        game_state.turn_timer_enabled?,
-          timer_started_at:     game_state.turn.timer_started_at.try(&.to_rfc3339),
-          timer_expires_at:     game_state.turn.timer_expires_at.try(&.to_rfc3339),
-          timer_duration_seconds: game_state.turn.timer_duration_seconds,
-          robber_return_phase:  game_state.robber_return_phase.try(&.to_s),
-          pending_player_trade: serialize_pending_player_trade(game_state.pending_player_trade, viewer_player_id),
-          pending_robber_discards: game_state.pending_robber_discards.map { |target_player_id, count|
+          timer_enabled:             game_state.turn_timer_enabled?,
+          timer_started_at:          game_state.turn.timer_started_at.try(&.to_rfc3339),
+          timer_expires_at:          game_state.turn.timer_expires_at.try(&.to_rfc3339),
+          timer_duration_seconds:    game_state.turn.timer_duration_seconds,
+          robber_return_phase:       game_state.robber_return_phase.try(&.to_s),
+          pending_player_trade:      serialize_pending_player_trade(game_state.pending_player_trade, viewer_player_id),
+          pending_robber_discards:   game_state.pending_robber_discards.map { |target_player_id, count|
             {
               player_id: target_player_id.value,
               count:     count,
@@ -1175,10 +1202,25 @@ module Settler::Engine::Application
 
       if list = @clients[lobby_id]?
         event_json = {
-          type:    "game_log",
-          message: message,
+          type:       "game_log",
+          message:    message,
           event_type: event_type,
-          payload: JSON.parse(payload_json),
+          payload:    JSON.parse(payload_json),
+        }.to_json
+        list.each do |client|
+          client.send_json(event_json)
+        end
+      end
+    end
+
+    private def broadcast_chat_message(lobby_id : String, player_id : String, player_name : String, message : String, created_at : Time)
+      if list = @clients[lobby_id]?
+        event_json = {
+          type:        "chat_message",
+          player_id:   player_id,
+          player_name: player_name,
+          message:     message,
+          created_at:  created_at.to_rfc3339,
         }.to_json
         list.each do |client|
           client.send_json(event_json)
@@ -1192,10 +1234,10 @@ module Settler::Engine::Application
       viewer_response = viewer_player_id ? pending_trade.response_for(PlayerId.new(viewer_player_id)).try(&.to_s) : nil
 
       {
-        player_id:           pending_trade.player_id.value,
-        offered:             pending_trade.offered.to_json_payload,
-        requested:           pending_trade.requested.to_json_payload,
-        responses:           pending_trade.responses.keys.sort_by(&.value).map { |player_id|
+        player_id: pending_trade.player_id.value,
+        offered:   pending_trade.offered.to_json_payload,
+        requested: pending_trade.requested.to_json_payload,
+        responses: pending_trade.responses.keys.sort_by(&.value).map { |player_id|
           {
             player_id: player_id.value,
             status:    pending_trade.responses[player_id].to_s,

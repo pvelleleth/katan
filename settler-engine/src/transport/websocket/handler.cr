@@ -93,6 +93,12 @@ module Settler::Engine::Transport::WebSocket
           end
         when "start_game", "place_settlement", "place_road", "place_city", "buy_development_card", "play_knight", "play_road_building", "play_monopoly", "play_year_of_plenty", "trade_with_player", "propose_player_trade", "accept_player_trade", "reject_player_trade", "cancel_player_trade", "finalize_player_trade", "trade_with_bank", "trade_with_harbor", "roll_dice", "discard_robber", "move_robber", "robber_steal", "end_turn", "game_action"
           handle_gameplay_action(client, lid, incoming)
+        when "send_chat_message"
+          return unless payload = incoming.payload
+          return unless player_id = client.player_id
+
+          message = payload["message"]?.try(&.as_s?)
+          @lobby_manager.send_chat_message(lid, player_id, message) if message
         when "ready"
           if payload = incoming.payload
             player_id = payload["player_id"]?.try(&.as_s?)

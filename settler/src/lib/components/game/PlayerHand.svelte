@@ -22,10 +22,9 @@
 	export let onStartCityPlacement: () => void;
 	export let onCancelPendingBoardBuildAction: () => void;
 	export let onConfirmSingleRoadBuildingPlacement: () => void;
-
-	type DevCardKey = keyof typeof devCardLabels;
-
+	export let onResourceClick: (resource: ResourceKey) => void;
 	const emptyHand = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
+	export let tradeOffered: Record<ResourceKey, number> = emptyHand;
 	const emptyDevCardCounts = {
 		knight: 0,
 		victory_point: 0,
@@ -287,12 +286,16 @@
 	<div class="flex flex-wrap items-stretch justify-between gap-4">
 		<div class="flex min-w-0 flex-1 flex-wrap items-end gap-4">
 			{#each resources as res}
-				{@const count = hand[res.id] || 0}
-				<div
+				{@const totalCount = hand[res.id] || 0}
+				{@const offeredCount = tradeOffered[res.id as ResourceKey] || 0}
+				{@const visibleCount = Math.max(0, totalCount - offeredCount)}
+				<button
+					type="button"
+					on:click={() => onResourceClick(res.id as ResourceKey)}
 					class="relative h-24 transition-all duration-300"
-					style="width: {64 + Math.max(0, count - 1) * 14}px"
+					style="width: {64 + Math.max(0, visibleCount - 1) * 14}px"
 				>
-					{#if count === 0}
+					{#if visibleCount === 0}
 						<div
 							class="absolute bottom-0 left-0 flex h-24 w-16 flex-col items-center justify-center rounded-xl border-2 border-dashed border-wood/20 bg-wood/5"
 						>
@@ -302,7 +305,7 @@
 						</div>
 					{/if}
 
-					{#each Array(count) as _, i (res.id + '-' + i)}
+					{#each Array(visibleCount) as _, i (res.id + '-' + i)}
 						<div
 							in:fly={{ y: -150, x: 0, duration: 600, easing: quintOut }}
 							class="absolute bottom-0 flex h-24 w-16 flex-col items-center justify-between rounded-xl border-2 border-white/40 p-2 shadow-md transition-transform hover:-translate-y-2 {res.color}"
@@ -341,47 +344,48 @@
 						</div>
 					{/each}
 
-					{#if count > 1}
+					{#if visibleCount > 1}
 						<div
 							in:fly={{ y: -20, duration: 400, delay: 200 }}
 							class="absolute -top-2 z-50 flex h-6 w-6 items-center justify-center rounded-full bg-wood-dark text-xs font-bold text-white shadow-md ring-2 ring-white"
-							style="left: {(count - 1) * 14 + 48}px"
+							style="left: {(visibleCount - 1) * 14 + 48}px"
 						>
-							{count}
+							{visibleCount}
 						</div>
 					{/if}
 
-					{#if needsToDiscard && count > 0}
+					{#if needsToDiscard && visibleCount > 0}
 						<div class="absolute -top-10 left-0 z-50 flex w-full justify-center gap-1">
-							<button
-								on:click={() => toggleDiscard(res.id, -1)}
-								disabled={discardSelection[res.id] === 0}
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-brick text-white shadow-md transition-transform hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+							<span
+								on:click|stopPropagation={() => toggleDiscard(res.id, -1)}
+								role="button"
+								tabindex="0"
+								class="flex h-8 w-8 items-center justify-center rounded-full bg-brick text-white shadow-md transition-transform hover:scale-110 active:scale-95 {discardSelection[res.id] === 0 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}"
 							>
 								-
-							</button>
+							</span>
 							<div
 								class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-wood/20 bg-white font-bold text-wood-dark shadow-md"
 							>
 								{discardSelection[res.id]}
 							</div>
-							<button
-								on:click={() => toggleDiscard(res.id, 1)}
-								disabled={discardSelection[res.id] === count ||
-									currentDiscardTotal >= discardTarget}
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-forest text-white shadow-md transition-transform hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+							<span
+								on:click|stopPropagation={() => toggleDiscard(res.id, 1)}
+								role="button"
+								tabindex="0"
+								class="flex h-8 w-8 items-center justify-center rounded-full bg-forest text-white shadow-md transition-transform hover:scale-110 active:scale-95 {discardSelection[res.id] === visibleCount || currentDiscardTotal >= discardTarget ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}"
 							>
 								+
-							</button>
+							</span>
 						</div>
 						{#if discardSelection[res.id] > 0}
 							<div
 								class="pointer-events-none absolute bottom-0 left-0 z-40 h-24 rounded-xl bg-black/40 transition-all"
-								style="width: {64 + Math.max(0, count - 1) * 14}px"
+								style="width: {64 + Math.max(0, visibleCount - 1) * 14}px"
 							></div>
 						{/if}
 					{/if}
-				</div>
+				</button>
 			{/each}
 
 			{#if ownedDevCardPiles.length > 0}
@@ -493,11 +497,11 @@
 					🎲 Roll Dice
 				</button>
 			{:else if phase === 'Main'}
-				<div class="flex flex-col gap-1">
+				<div class="flex min-w-[7rem] flex-col gap-1">
 					<button
 						on:click={() => onTradeClick('player')}
 						disabled={!!pendingTrade}
-						class="flex-1 rounded-lg bg-wood px-4 py-1 text-xs font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+						class="flex-1 rounded-lg bg-wood px-6 py-1.5 text-xs font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
 					>
 						{#if tradePendingForMe}
 							Trade Pending
@@ -510,21 +514,21 @@
 					<button
 						on:click={() => sendGameAction('buy_development_card')}
 						disabled={!canBuyDevelopmentCard}
-						class="flex-1 rounded-lg bg-purple-600 px-4 py-1 text-xs font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+						class="flex-1 rounded-lg bg-purple-600 px-6 py-1.5 text-xs font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
 					>
 						Buy Dev Card
 					</button>
 					<button
 						on:click={toggleCityPlacement}
 						disabled={!canBuildCity && pendingBoardBuildAction !== 'city'}
-						class="flex-1 rounded-lg bg-wheat px-4 py-1 text-xs font-bold text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+						class="flex-1 rounded-lg bg-wheat px-6 py-1.5 text-xs font-bold text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
 					>
 						{pendingBoardBuildAction === 'city' ? 'Cancel City' : 'Build City'}
 					</button>
 				</div>
 				<button
 					on:click={() => sendGameAction('end_turn')}
-					class="rounded-xl border-2 border-wood/20 bg-white px-5 py-2 font-black text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95"
+					class="ml-10 rounded-xl border-2 border-wood/20 bg-white px-6 py-2 font-black text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95"
 				>
 					End Turn
 				</button>

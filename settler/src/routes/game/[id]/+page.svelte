@@ -54,30 +54,48 @@
 	let gameState: any = null;
 	let isConnecting = true;
 	let gameLog: { type?: string; payload?: any; message: string; createdAt: string }[] = [];
+	let chatMessages: {
+		playerId: string;
+		playerName: string;
+		message: string;
+		createdAt: string;
+	}[] = [];
 	let tradeComposerOpen = false;
 	let tradeComposerMode: 'player' | 'bank' = 'player';
 
 	import { invalidateAll } from '$app/navigation';
 	import GameView from '$lib/components/game/GameView.svelte';
+	import ChatPanel from '$lib/components/game/ChatPanel.svelte';
 	import type { ResourceKey, ResourcePile } from '$lib/components/game/trade';
 
 	onMount(async () => {
 		try {
 			const { data: sessionData } = await authClient.getSession();
 
-			// Fetch existing game log
+			// Fetch existing activity and chat history
 			fetch(`/api/games/${lobbyId}/events`)
 				.then((res) => res.json())
 				.then((data) => {
 					if (data.events) {
-						gameLog = data.events
-							.map((e: any) => ({
-								type: e.type,
-								payload: e.payload,
-								message: e.message,
-								createdAt: e.createdAt
+						const loadedEvents = data.events.map((e: any) => ({
+							type: e.type,
+							payload: e.payload,
+							message: e.message,
+							createdAt: e.createdAt
+						}));
+
+						gameLog = loadedEvents.filter(
+							(event: any) => event.type !== 'chat_message' && event.message
+						);
+						chatMessages = loadedEvents
+							.filter((event: any) => event.type === 'chat_message')
+							.map((event: any) => ({
+								playerId: String(event.payload?.player_id ?? ''),
+								playerName: String(event.payload?.player_name ?? 'Player'),
+								message: String(event.payload?.message ?? event.message ?? ''),
+								createdAt: String(event.payload?.created_at ?? event.createdAt)
 							}))
-							.filter((e: any) => e.message);
+							.filter((event: any) => event.message);
 					}
 				})
 				.catch(console.error);
@@ -182,6 +200,16 @@
 						createdAt: new Date().toISOString()
 					}
 				];
+			} else if (msg.type === 'chat_message') {
+				chatMessages = [
+					...chatMessages,
+					{
+						playerId: msg.player_id,
+						playerName: msg.player_name,
+						message: msg.message,
+						createdAt: msg.created_at ?? new Date().toISOString()
+					}
+				];
 			} else if (msg.type === 'kicked') {
 				// This client was kicked by the host
 				ws?.close();
@@ -257,6 +285,16 @@
 			JSON.stringify({
 				action,
 				payload
+			})
+		);
+	}
+
+	function sendChatMessage(message: string) {
+		if (!ws || !data.playerId) return;
+		ws.send(
+			JSON.stringify({
+				action: 'send_chat_message',
+				payload: { message }
 			})
 		);
 	}
@@ -380,7 +418,9 @@
 			{players}
 			playerId={data.playerId || ''}
 			{sendGameAction}
+			{sendChatMessage}
 			{gameLog}
+			{chatMessages}
 			{tradeComposerOpen}
 			{tradeComposerMode}
 			onOpenTradeComposer={openTradeComposer}
@@ -616,147 +656,155 @@
 					<aside>
 						{#if data.playerId}
 							{@const isHost = data.playerId === data.hostId}
-							<div
-								class="sticky top-[112px] rounded-3xl border-2 border-wood/10 p-6 shadow-xl glass-panel"
-							>
-								<h2 class="mb-5 text-xl font-black text-wood-dark">Game Settings</h2>
-								<div class="flex flex-col gap-5">
-									<div>
-										<label
-											class="flex items-center gap-3 {!isHost
-												? 'cursor-default'
-												: 'cursor-pointer'}"
-										>
+							<div class="sticky top-[112px] flex flex-col gap-6">
+								<div class="rounded-3xl border-2 border-wood/10 p-6 shadow-xl glass-panel">
+									<h2 class="mb-5 text-xl font-black text-wood-dark">Game Settings</h2>
+									<div class="flex flex-col gap-5">
+										<div>
+											<label
+												class="flex items-center gap-3 {!isHost
+													? 'cursor-default'
+													: 'cursor-pointer'}"
+											>
+												<input
+													type="checkbox"
+													bind:checked={settings.turnTimerEnabled}
+													disabled={!isHost}
+													class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
+												/>
+												<span class="text-sm font-semibold text-wood-dark">Enable turn timer</span>
+											</label>
+										</div>
+										<div>
+											<label
+												for="turnTime"
+												class="mb-1 block text-xs font-bold tracking-wider text-wood-light uppercase"
+												>Turn time (sec)</label
+											>
 											<input
-												type="checkbox"
-												bind:checked={settings.turnTimerEnabled}
+												id="turnTime"
+												type="number"
+												min="30"
+												max="300"
+												step="30"
+												bind:value={settings.turnTimeSeconds}
 												disabled={!isHost}
-												class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
+												class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark focus:border-ocean/50 focus:ring-2 focus:ring-ocean/20 focus:outline-none disabled:cursor-not-allowed disabled:bg-wood/5 disabled:opacity-70"
 											/>
-											<span class="text-sm font-semibold text-wood-dark">Enable turn timer</span>
-										</label>
-									</div>
-									<div>
-										<label
-											for="turnTime"
-											class="mb-1 block text-xs font-bold tracking-wider text-wood-light uppercase"
-											>Turn time (sec)</label
-										>
-										<input
-											id="turnTime"
-											type="number"
-											min="30"
-											max="300"
-											step="30"
-											bind:value={settings.turnTimeSeconds}
-											disabled={!isHost}
-											class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark focus:border-ocean/50 focus:ring-2 focus:ring-ocean/20 focus:outline-none disabled:cursor-not-allowed disabled:bg-wood/5 disabled:opacity-70"
-										/>
-									</div>
-									<div>
-										<label
-											for="maxPlayers"
-											class="mb-1 block text-xs font-bold tracking-wider text-wood-light uppercase"
-											>Max players</label
-										>
-										<input
-											id="maxPlayers"
-											type="number"
-											min="2"
-											max="6"
-											bind:value={settings.maxPlayers}
-											disabled={!isHost}
-											class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark focus:border-ocean/50 focus:ring-2 focus:ring-ocean/20 focus:outline-none disabled:cursor-not-allowed disabled:bg-wood/5 disabled:opacity-70"
-										/>
-									</div>
-									<div>
-										<label
-											for="victoryPoints"
-											class="mb-1 block text-xs font-bold tracking-wider text-wood-light uppercase"
-											>Victory points</label
-										>
-										<input
-											id="victoryPoints"
-											type="number"
-											min="5"
-											max="20"
-											bind:value={settings.victoryPoints}
-											disabled={!isHost}
-											class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark focus:border-ocean/50 focus:ring-2 focus:ring-ocean/20 focus:outline-none disabled:cursor-not-allowed disabled:bg-wood/5 disabled:opacity-70"
-										/>
-									</div>
-									<div class="flex flex-col gap-3 pt-2">
-										<label
-											class="flex items-center gap-3 {!isHost
-												? 'cursor-default'
-												: 'cursor-pointer'}"
-										>
+										</div>
+										<div>
+											<label
+												for="maxPlayers"
+												class="mb-1 block text-xs font-bold tracking-wider text-wood-light uppercase"
+												>Max players</label
+											>
 											<input
-												type="checkbox"
-												bind:checked={settings.useSeafarers}
+												id="maxPlayers"
+												type="number"
+												min="2"
+												max="6"
+												bind:value={settings.maxPlayers}
 												disabled={!isHost}
-												class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
+												class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark focus:border-ocean/50 focus:ring-2 focus:ring-ocean/20 focus:outline-none disabled:cursor-not-allowed disabled:bg-wood/5 disabled:opacity-70"
 											/>
-											<span class="text-sm font-semibold text-wood-dark">Seafarers</span>
-										</label>
-										<label
-											class="flex items-center gap-3 {!isHost
-												? 'cursor-default'
-												: 'cursor-pointer'}"
-										>
+										</div>
+										<div>
+											<label
+												for="victoryPoints"
+												class="mb-1 block text-xs font-bold tracking-wider text-wood-light uppercase"
+												>Victory points</label
+											>
 											<input
-												type="checkbox"
-												bind:checked={settings.useTraders}
+												id="victoryPoints"
+												type="number"
+												min="5"
+												max="20"
+												bind:value={settings.victoryPoints}
 												disabled={!isHost}
-												class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
+												class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark focus:border-ocean/50 focus:ring-2 focus:ring-ocean/20 focus:outline-none disabled:cursor-not-allowed disabled:bg-wood/5 disabled:opacity-70"
 											/>
-											<span class="text-sm font-semibold text-wood-dark">Traders</span>
-										</label>
-										<label
-											class="flex items-center gap-3 {!isHost
-												? 'cursor-default'
-												: 'cursor-pointer'}"
-										>
-											<input
-												type="checkbox"
-												bind:checked={settings.useExplorers}
-												disabled={!isHost}
-												class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
-											/>
-											<span class="text-sm font-semibold text-wood-dark">Explorers</span>
-										</label>
+										</div>
+										<div class="flex flex-col gap-3 pt-2">
+											<label
+												class="flex items-center gap-3 {!isHost
+													? 'cursor-default'
+													: 'cursor-pointer'}"
+											>
+												<input
+													type="checkbox"
+													bind:checked={settings.useSeafarers}
+													disabled={!isHost}
+													class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
+												/>
+												<span class="text-sm font-semibold text-wood-dark">Seafarers</span>
+											</label>
+											<label
+												class="flex items-center gap-3 {!isHost
+													? 'cursor-default'
+													: 'cursor-pointer'}"
+											>
+												<input
+													type="checkbox"
+													bind:checked={settings.useTraders}
+													disabled={!isHost}
+													class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
+												/>
+												<span class="text-sm font-semibold text-wood-dark">Traders</span>
+											</label>
+											<label
+												class="flex items-center gap-3 {!isHost
+													? 'cursor-default'
+													: 'cursor-pointer'}"
+											>
+												<input
+													type="checkbox"
+													bind:checked={settings.useExplorers}
+													disabled={!isHost}
+													class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
+												/>
+												<span class="text-sm font-semibold text-wood-dark">Explorers</span>
+											</label>
+										</div>
 									</div>
+									{#if isHost}
+										<button
+											on:click={saveSettings}
+											class="mt-6 flex w-full items-center justify-center gap-2 rounded-xl border border-ocean/20 {settingsSaved
+												? 'bg-forest'
+												: 'bg-ocean'} px-4 py-2.5 text-sm font-bold text-white shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
+										>
+											{#if settingsSaved}
+												<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="3"
+														d="M5 13l4 4L19 7"
+													/>
+												</svg>
+												Saved!
+											{:else}
+												<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2.5"
+														d="M5 13l4 4L19 7"
+													/>
+												</svg>
+												Save Settings
+											{/if}
+										</button>
+									{/if}
 								</div>
-								{#if isHost}
-									<button
-										on:click={saveSettings}
-										class="mt-6 flex w-full items-center justify-center gap-2 rounded-xl border border-ocean/20 {settingsSaved
-											? 'bg-forest'
-											: 'bg-ocean'} px-4 py-2.5 text-sm font-bold text-white shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
-									>
-										{#if settingsSaved}
-											<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path
-													stroke-linecap="round"
-													stroke-linejoin="round"
-													stroke-width="3"
-													d="M5 13l4 4L19 7"
-												/>
-											</svg>
-											Saved!
-										{:else}
-											<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path
-													stroke-linecap="round"
-													stroke-linejoin="round"
-													stroke-width="2.5"
-													d="M5 13l4 4L19 7"
-												/>
-											</svg>
-											Save Settings
-										{/if}
-									</button>
-								{/if}
+
+								<ChatPanel
+									messages={chatMessages}
+									playerId={data.playerId || ''}
+									onSend={sendChatMessage}
+									title="Lobby Chat"
+									emptyMessage="Chat with the lobby before the game starts."
+								/>
 							</div>
 						{/if}
 					</aside>
