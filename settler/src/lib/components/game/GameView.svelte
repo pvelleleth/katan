@@ -8,7 +8,12 @@
 	import TradeOfferPopup from './TradeOfferPopup.svelte';
 	import GameOverScreen from './GameOverScreen.svelte';
 	import BuildCostsPanel from './BuildCostsPanel.svelte';
-	import { createEmptyResourcePile, type ResourceKey, type ResourcePile } from './trade';
+	import {
+	createEmptyResourcePile,
+	getBankTradeRates,
+	type ResourceKey,
+	type ResourcePile
+} from './trade';
 
 	type ChatMessage = {
 		playerId: string;
@@ -80,8 +85,12 @@
 		const available = myHand[resource] || 0;
 
 		if (tradeComposerMode === 'bank') {
-			// In bank mode, clicking a resource sets it as the ONLY offered resource
-			tradeOffered = { ...createEmptyResourcePile(), [resource]: available };
+			// In bank mode, offer only the amount needed for the trade (bank rate)
+			// so the hand still shows remaining resources
+			const bankRates = getBankTradeRates(gameState, playerId);
+			const bankRate = bankRates[resource] ?? 4;
+			const amountToOffer = Math.min(available, bankRate);
+			tradeOffered = { ...createEmptyResourcePile(), [resource]: amountToOffer };
 		} else if (currentOffered < available) {
 			tradeOffered = { ...tradeOffered, [resource]: currentOffered + 1 };
 		}

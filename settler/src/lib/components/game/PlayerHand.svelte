@@ -4,7 +4,8 @@
 	import {
 		backendResourceNames,
 		canConfirmSingleRoadBuildingPlacement,
-		devCardLabels
+		devCardLabels,
+		type DevCardKey
 	} from './devCards';
 	import { resourceKeys, resourceLabels, type ResourceKey } from './trade';
 

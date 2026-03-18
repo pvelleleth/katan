@@ -30,6 +30,8 @@ export const devCardLabels = {
 	monopoly: 'Monopoly'
 } as const;
 
+export type DevCardKey = keyof typeof devCardLabels;
+
 export const backendResourceNames: Record<ResourceKey, string> = {
 	wood: 'Wood',
 	brick: 'Brick',
