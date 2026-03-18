@@ -375,7 +375,7 @@ module Settler::Engine::Application
       puts "Failed to play year of plenty for #{lobby_id}: #{ex.message}"
     end
 
-    def propose_player_trade(lobby_id : String, player_id : String, offered : ResourcePile, requested : ResourcePile, grant_timer_bonus : Bool = true)
+    def propose_player_trade(lobby_id : String, player_id : String, offered : ResourcePile, requested : ResourcePile, grant_timer_bonus : Bool = false)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       previous_player_id = game_state.turn.current_player_id
       previous_phase = game_state.turn.phase
@@ -445,7 +445,7 @@ module Settler::Engine::Application
       puts "Failed to reject player trade for #{lobby_id}: #{ex.message}"
     end
 
-    def cancel_player_trade(lobby_id : String, player_id : String, grant_timer_bonus : Bool = true)
+    def cancel_player_trade(lobby_id : String, player_id : String, grant_timer_bonus : Bool = false)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       previous_player_id = game_state.turn.current_player_id
       previous_phase = game_state.turn.phase

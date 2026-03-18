@@ -165,7 +165,7 @@ describe Settler::Engine::Application::LobbyManager do
     snapshot_json["turn"]["timer_duration_seconds"].as_i.should eq(30)
   end
 
-  it "does not extend the active timer for other players' responses" do
+  it "does not extend the active timer for trade proposal, responses, or cancellation" do
     store = RecordingGameEventStore.new
     manager = Settler::Engine::Application::LobbyManager.new(store, FixedDiceRoller.new([] of DiceRoll))
     first_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
@@ -194,13 +194,20 @@ describe Settler::Engine::Application::LobbyManager do
     game_state.player!(PlayerId.new(other_player_id)).hand.brick = 1
     game_state.turn.phase = TurnPhase::Main
     game_state.start_turn_timer!(30)
+    initial_expires_at = game_state.turn.timer_expires_at
+    initial_duration = game_state.turn.timer_duration_seconds
 
     manager.propose_player_trade("TIME02", current_player_id, ResourcePile.new(1, 0, 0, 0, 0), ResourcePile.new(0, 1, 0, 0, 0))
-    timer_after_propose = game_state.turn.timer_duration_seconds
-    timer_after_propose.should eq(40)
+    game_state.turn.timer_expires_at.should eq(initial_expires_at)
+    game_state.turn.timer_duration_seconds.should eq(initial_duration)
 
     manager.accept_player_trade("TIME02", other_player_id)
-    game_state.turn.timer_duration_seconds.should eq(timer_after_propose)
+    game_state.turn.timer_expires_at.should eq(initial_expires_at)
+    game_state.turn.timer_duration_seconds.should eq(initial_duration)
+
+    manager.cancel_player_trade("TIME02", current_player_id)
+    game_state.turn.timer_expires_at.should eq(initial_expires_at)
+    game_state.turn.timer_duration_seconds.should eq(initial_duration)
   end
 
   it "resets and extends the timer correctly across the robber flow after rolling a 7" do
