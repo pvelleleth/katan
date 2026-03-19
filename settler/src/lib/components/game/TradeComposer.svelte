@@ -55,8 +55,10 @@
 	const resourceIcons: Record<ResourceKey, string> = {
 		wood: '<path d="M12 2L4 10h3v4H4l8 8 8-8h-3v-4h3z" />',
 		brick: '<path d="M2 4h20v4H2zm0 6h9v4H2zm11 0h9v4h-9zm-11 6h20v4H2z" />',
-		sheep: '<path d="M18.5 8c-1.2 0-2.2.8-2.4 1.9-.5-.3-1.1-.4-1.6-.4-1.8 0-3.3 1.3-3.6 3-.4-.3-.9-.5-1.4-.5-1.9 0-3.5 1.6-3.5 3.5 0 .3 0 .6.1.8-.8.4-1.4 1.2-1.4 2.2 0 1.4 1.1 2.5 2.5 2.5h11.5c1.9 0 3.5-1.6 3.5-3.5 0-1.6-1.1-2.9-2.6-3.3.1-.4.1-.8.1-1.2 0-2.8-2.2-5-5-5z" />',
-		wheat: '<path d="M12 2C7 2 3 6 3 11c0 2.2.8 4.2 2.1 5.7L2 22l2 1 3.3-3.3C8.8 20.6 10.3 21 12 21c5 0 9-4 9-9s-4-9-9-9zm0 17c-4.4 0-8-3.6-8-8s3.6-8 8-8 8 3.6 8 8-3.6 8-8 8z" /><path d="M12 5v14M8 8l4 4M16 8l-4 4M8 14l4-4M16 14l-4-4" stroke="currentColor" stroke-width="2" />',
+		sheep:
+			'<path d="M18.5 8c-1.2 0-2.2.8-2.4 1.9-.5-.3-1.1-.4-1.6-.4-1.8 0-3.3 1.3-3.6 3-.4-.3-.9-.5-1.4-.5-1.9 0-3.5 1.6-3.5 3.5 0 .3 0 .6.1.8-.8.4-1.4 1.2-1.4 2.2 0 1.4 1.1 2.5 2.5 2.5h11.5c1.9 0 3.5-1.6 3.5-3.5 0-1.6-1.1-2.9-2.6-3.3.1-.4.1-.8.1-1.2 0-2.8-2.2-5-5-5z" />',
+		wheat:
+			'<path d="M12 2C7 2 3 6 3 11c0 2.2.8 4.2 2.1 5.7L2 22l2 1 3.3-3.3C8.8 20.6 10.3 21 12 21c5 0 9-4 9-9s-4-9-9-9zm0 17c-4.4 0-8-3.6-8-8s3.6-8 8-8 8 3.6 8 8-3.6 8-8 8z" /><path d="M12 5v14M8 8l4 4M16 8l-4 4M8 14l4-4M16 14l-4-4" stroke="currentColor" stroke-width="2" />',
 		ore: '<path d="M12 2L2 22h20L12 2zm0 6l5 10H7l5-10z" />'
 	};
 
@@ -113,8 +115,7 @@
 					<div class="flex gap-1 rounded-lg bg-wood/5 p-0.5">
 						<button
 							on:click={() => onModeChange('player')}
-							class="rounded-md px-2.5 py-1 text-[10px] font-black transition-all {mode ===
-							'player'
+							class="rounded-md px-2.5 py-1 text-[10px] font-black transition-all {mode === 'player'
 								? 'bg-white text-ocean shadow-sm'
 								: 'text-wood-light hover:text-wood-dark'}"
 						>
@@ -122,8 +123,7 @@
 						</button>
 						<button
 							on:click={() => onModeChange('bank')}
-							class="rounded-md px-2.5 py-1 text-[10px] font-black transition-all {mode ===
-							'bank'
+							class="rounded-md px-2.5 py-1 text-[10px] font-black transition-all {mode === 'bank'
 								? 'bg-white text-ocean shadow-sm'
 								: 'text-wood-light hover:text-wood-dark'}"
 						>
@@ -146,7 +146,9 @@
 				<!-- TOP ROW: WANT -->
 				<div class="flex items-center justify-between gap-3">
 					<div class="flex items-center gap-3">
-						<div class="flex h-9 w-9 items-center justify-center rounded-full bg-forest/10 text-forest">
+						<div
+							class="flex h-9 w-9 items-center justify-center rounded-full bg-forest/10 text-forest"
+						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
 								width="20"
@@ -214,9 +216,7 @@
 								<svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="currentColor">
 									{@html resourceIcons[r]}
 								</svg>
-								<span class="mt-0.5 text-[7px] font-black uppercase"
-									>{resourceLabels[r][0]}</span
-								>
+								<span class="mt-0.5 text-[7px] font-black uppercase">{resourceLabels[r][0]}</span>
 							</button>
 						{/each}
 					</div>
@@ -228,7 +228,9 @@
 				<!-- BOTTOM ROW: GIVE -->
 				<div class="flex items-center justify-between gap-3">
 					<div class="flex items-center gap-3">
-						<div class="flex h-9 w-9 items-center justify-center rounded-full bg-red-500/10 text-red-500">
+						<div
+							class="flex h-9 w-9 items-center justify-center rounded-full bg-red-500/10 text-red-500"
+						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
 								width="20"

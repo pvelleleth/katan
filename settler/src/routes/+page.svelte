@@ -61,9 +61,7 @@
 	<header
 		class="sticky top-0 z-50 flex h-[88px] items-center gap-5 border-b border-wood/10 bg-parchment/60 px-8 backdrop-blur-xl lg:px-14"
 	>
-		<div class="text-2xl font-[900] tracking-tight text-wood select-none lg:text-3xl">
-			SETTLER
-		</div>
+		<div class="text-2xl font-[900] tracking-tight text-wood select-none lg:text-3xl">SETTLER</div>
 
 		<nav class="ml-10 hidden flex-1 items-center gap-8 md:flex">
 			<a href="/game" class="text-sm font-bold text-wood/70 transition-colors hover:text-ocean"

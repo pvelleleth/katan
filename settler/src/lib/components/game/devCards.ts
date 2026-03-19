@@ -127,18 +127,14 @@ export function canConfirmSingleRoadBuildingPlacement(
 	return getLegalRoadBuildingEdges(board, playerId, selectedEdgeIds).length === 0;
 }
 
-function getPendingSetupSettlementVertexId(
-	board: BoardState,
-	playerId: string
-): string | null {
+function getPendingSetupSettlementVertexId(board: BoardState, playerId: string): string | null {
 	const candidateVertices = board.vertices.filter((vertex) => {
 		if (vertex.building?.player_id !== playerId) {
 			return false;
 		}
 
 		return !board.edges.some(
-			(edge) =>
-				touchesVertex(edge, vertex.id) && edge.road?.player_id === playerId
+			(edge) => touchesVertex(edge, vertex.id) && edge.road?.player_id === playerId
 		);
 	});
 
@@ -160,9 +156,7 @@ export function getLegalRoadEdges(
 			return [];
 		}
 
-		return board.edges.filter(
-			(edge) => !edge.road && touchesVertex(edge, settlementVertexId)
-		);
+		return board.edges.filter((edge) => !edge.road && touchesVertex(edge, settlementVertexId));
 	}
 
 	if (phase !== 'Main') {

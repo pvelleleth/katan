@@ -61,12 +61,14 @@
 </script>
 
 <div
-	class="flex flex-col rounded-2xl border-2 border-wood/10 bg-white/50 pt-2 px-3 pb-3 {collapsed
+	class="flex flex-col rounded-2xl border-2 border-wood/10 bg-white/50 px-3 pt-2 pb-3 {collapsed
 		? 'shrink-0 grow-0'
 		: 'min-h-0 flex-1'}"
 >
 	<button
-		class="flex w-full items-center justify-between gap-3 text-left {collapsed ? '' : 'mb-1.5'} {collapsible ? 'cursor-pointer' : 'cursor-default'}"
+		class="flex w-full items-center justify-between gap-3 text-left {collapsed
+			? ''
+			: 'mb-1.5'} {collapsible ? 'cursor-pointer' : 'cursor-default'}"
 		on:click={() => collapsible && (collapsed = !collapsed)}
 		disabled={!collapsible}
 	>
@@ -77,7 +79,9 @@
 			</span>
 			{#if collapsible}
 				<svg
-					class="h-4 w-4 shrink-0 text-wood-light transition-transform {collapsed ? '' : 'rotate-90'}"
+					class="h-4 w-4 shrink-0 text-wood-light transition-transform {collapsed
+						? ''
+						: 'rotate-90'}"
 					fill="none"
 					stroke="currentColor"
 					viewBox="0 0 24 24"
@@ -121,22 +125,22 @@
 		</div>
 
 		<form class="mt-3 flex items-end gap-2" on:submit|preventDefault={submit}>
-		<textarea
-			bind:value={draft}
-			rows="1"
-			maxlength="500"
-			placeholder={inputPlaceholder}
-			{disabled}
-			on:keydown={handleKeydown}
-			class="min-h-[40px] flex-1 resize-none rounded-xl border border-wood/15 bg-white/90 px-3 py-2 text-sm text-wood-dark shadow-sm transition outline-none focus:border-ocean/40 focus:ring-2 focus:ring-ocean/15 disabled:cursor-not-allowed disabled:bg-wood/5 disabled:text-wood-light"
-		></textarea>
-		<button
-			type="submit"
-			disabled={disabled || !draft.trim()}
-			class="rounded-xl bg-ocean px-4 py-2 text-sm font-bold text-white shadow-md transition hover:bg-[#1880a8] disabled:cursor-not-allowed disabled:bg-wood/30"
-		>
-			Send
-		</button>
-	</form>
+			<textarea
+				bind:value={draft}
+				rows="1"
+				maxlength="500"
+				placeholder={inputPlaceholder}
+				{disabled}
+				on:keydown={handleKeydown}
+				class="min-h-[40px] flex-1 resize-none rounded-xl border border-wood/15 bg-white/90 px-3 py-2 text-sm text-wood-dark shadow-sm transition outline-none focus:border-ocean/40 focus:ring-2 focus:ring-ocean/15 disabled:cursor-not-allowed disabled:bg-wood/5 disabled:text-wood-light"
+			></textarea>
+			<button
+				type="submit"
+				disabled={disabled || !draft.trim()}
+				class="rounded-xl bg-ocean px-4 py-2 text-sm font-bold text-white shadow-md transition hover:bg-[#1880a8] disabled:cursor-not-allowed disabled:bg-wood/30"
+			>
+				Send
+			</button>
+		</form>
 	{/if}
 </div>

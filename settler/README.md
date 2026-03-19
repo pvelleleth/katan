@@ -26,11 +26,13 @@ The frontend application for [Settler](../README.md). Built with [SvelteKit](htt
 ## 🏗️ Development
 
 To start the development server:
+
 ```bash
 bun run dev
 ```
 
 To run the check (TypeScript and Svelte validations):
+
 ```bash
 bun run check
 ```

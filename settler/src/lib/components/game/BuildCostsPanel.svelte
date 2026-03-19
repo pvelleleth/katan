@@ -47,9 +47,12 @@
 						{#each resourceKeys as res}
 							{#if (item.cost[res] || 0) > 0}
 								<span
-									class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold {resourceColors[res]}"
+									class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold {resourceColors[
+										res
+									]}"
 								>
-									{item.cost[res]} {resourceLabels[res]}
+									{item.cost[res]}
+									{resourceLabels[res]}
 								</span>
 							{/if}
 						{/each}
@@ -59,4 +62,3 @@
 		</ul>
 	</div>
 {/if}
-

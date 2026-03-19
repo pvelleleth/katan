@@ -360,9 +360,15 @@
 							<span
 								role="button"
 								tabindex="0"
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-brick text-white shadow-md transition-transform hover:scale-110 active:scale-95 {discardSelection[res.id] === 0 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}"
+								class="flex h-8 w-8 items-center justify-center rounded-full bg-brick text-white shadow-md transition-transform hover:scale-110 active:scale-95 {discardSelection[
+									res.id
+								] === 0
+									? 'cursor-not-allowed opacity-50'
+									: 'cursor-pointer'}"
 								on:click|stopPropagation={() => toggleDiscard(res.id, -1)}
-								on:keydown|stopPropagation={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggleDiscard(res.id, -1))}
+								on:keydown|stopPropagation={(e) =>
+									(e.key === 'Enter' || e.key === ' ') &&
+									(e.preventDefault(), toggleDiscard(res.id, -1))}
 							>
 								-
 							</span>
@@ -374,9 +380,15 @@
 							<span
 								role="button"
 								tabindex="0"
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-forest text-white shadow-md transition-transform hover:scale-110 active:scale-95 {discardSelection[res.id] === visibleCount || currentDiscardTotal >= discardTarget ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}"
+								class="flex h-8 w-8 items-center justify-center rounded-full bg-forest text-white shadow-md transition-transform hover:scale-110 active:scale-95 {discardSelection[
+									res.id
+								] === visibleCount || currentDiscardTotal >= discardTarget
+									? 'cursor-not-allowed opacity-50'
+									: 'cursor-pointer'}"
 								on:click|stopPropagation={() => toggleDiscard(res.id, 1)}
-								on:keydown|stopPropagation={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggleDiscard(res.id, 1))}
+								on:keydown|stopPropagation={(e) =>
+									(e.key === 'Enter' || e.key === ' ') &&
+									(e.preventDefault(), toggleDiscard(res.id, 1))}
 							>
 								+
 							</span>

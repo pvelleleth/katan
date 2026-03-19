@@ -9,11 +9,11 @@
 	import GameOverScreen from './GameOverScreen.svelte';
 	import BuildCostsPanel from './BuildCostsPanel.svelte';
 	import {
-	createEmptyResourcePile,
-	getBankTradeRates,
-	type ResourceKey,
-	type ResourcePile
-} from './trade';
+		createEmptyResourcePile,
+		getBankTradeRates,
+		type ResourceKey,
+		type ResourcePile
+	} from './trade';
 
 	type ChatMessage = {
 		playerId: string;
@@ -386,7 +386,7 @@
 				onCancelPendingBoardBuildAction={cancelPendingBoardBuildAction}
 				onConfirmSingleRoadBuildingPlacement={confirmSingleRoadBuildingPlacement}
 				onResourceClick={handleResourceClick}
-				tradeOffered={tradeOffered}
+				{tradeOffered}
 			/>
 		</div>
 	</main>

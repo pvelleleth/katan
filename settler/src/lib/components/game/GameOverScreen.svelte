@@ -20,8 +20,7 @@
 	$: playerOrder = gameState.player_order as string[];
 
 	// Total VP = public (buildings, longest road, largest army) + hidden victory point cards
-	const totalVP = (p: any) =>
-		(p?.victory_points ?? 0) + (p?.victory_point_cards ?? 0);
+	const totalVP = (p: any) => (p?.victory_points ?? 0) + (p?.victory_point_cards ?? 0);
 
 	// Merge game-state player data with lobby colors
 	$: rankedPlayers = [...playerOrder]
@@ -62,7 +61,6 @@
 		purple: 'text-purple',
 		wood: 'text-wood'
 	};
-
 </script>
 
 <!-- Full-screen overlay -->
@@ -114,12 +112,15 @@
 						{#if iAmWinner}
 							<h1 class="text-4xl font-black tracking-tight text-amber-600">You Won!</h1>
 							<p class="mt-2 text-lg font-semibold text-wood-dark/70">
-								Your final score was <span class="font-black text-amber-600">{totalVP(winner)} VP</span>.
+								Your final score was <span class="font-black text-amber-600"
+									>{totalVP(winner)} VP</span
+								>.
 							</p>
 						{:else}
 							<h1 class="text-4xl font-black tracking-tight text-wood-dark">Game Over</h1>
 							<p class="mt-2 text-lg font-semibold text-wood-dark/70">
-								<span class={colorText[winner?.color] ?? 'text-wood'}>{winner?.name}</span> wins with
+								<span class={colorText[winner?.color] ?? 'text-wood'}>{winner?.name}</span> wins
+								with
 								<span class="font-black text-amber-600">{totalVP(winner)} VP</span>.
 							</p>
 						{/if}
@@ -127,8 +128,8 @@
 				</div>
 
 				<p class="text-sm font-semibold text-wood-light/80 lg:pr-12">
-					Review how each player reached their final score, then switch back to the map to inspect the final
-					board position.
+					Review how each player reached their final score, then switch back to the map to inspect
+					the final board position.
 				</p>
 			</div>
 
@@ -178,7 +179,9 @@
 			<div class="overflow-hidden rounded-3xl border border-wood/10 bg-white/70 shadow-sm">
 				<div class="overflow-x-auto">
 					<table class="min-w-full border-collapse text-sm text-wood-dark">
-						<thead class="bg-parchment/80 text-[11px] font-black tracking-widest text-wood-light uppercase">
+						<thead
+							class="bg-parchment/80 text-[11px] font-black tracking-widest text-wood-light uppercase"
+						>
 							<tr>
 								<th class="px-4 py-3 text-left">Player</th>
 								<th class="px-4 py-3 text-center">Cities</th>
@@ -193,11 +196,18 @@
 							{#each rankedPlayers as player, rank}
 								{@const isWinner = player.id === winnerPlayerId}
 								{@const isMe = player.id === playerId}
-								<tr class={isWinner ? 'bg-amber-50/80' : rank % 2 === 0 ? 'bg-white/70' : 'bg-parchment/35'}>
+								<tr
+									class={isWinner
+										? 'bg-amber-50/80'
+										: rank % 2 === 0
+											? 'bg-white/70'
+											: 'bg-parchment/35'}
+								>
 									<td class="px-4 py-3">
 										<div class="flex items-center gap-3">
 											<div
-												class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-black {rank === 0
+												class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-black {rank ===
+												0
 													? 'bg-amber-400 text-amber-900'
 													: rank === 1
 														? 'bg-slate-300 text-slate-700'
@@ -274,17 +284,22 @@
 								class="relative w-full rounded-t-sm bg-ocean transition-all duration-500"
 								style="height: {highestRollCount > 0 ? (count / highestRollCount) * 80 : 0}px"
 							>
-								<span class="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-medium text-wood-dark/80">{count}</span>
+								<span
+									class="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-medium text-wood-dark/80"
+									>{count}</span
+								>
 							</div>
 							<div
 								class="absolute h-1 w-1 rounded-full bg-brick opacity-40"
-								style="bottom: {highestRollCount > 0 ? ((theoreticalProbabilities[num] * totalRolls) / highestRollCount) * 80 + 24 : 24}px"
+								style="bottom: {highestRollCount > 0
+									? ((theoreticalProbabilities[num] * totalRolls) / highestRollCount) * 80 + 24
+									: 24}px"
 							></div>
 
 							<span class="mt-2 text-[10px] font-black text-wood-dark/40">{num}</span>
 
 							<div
-								class="pointer-events-none absolute bottom-full mb-2 hidden -translate-y-1 rounded bg-wood-dark px-2 py-1 text-[10px] text-white whitespace-nowrap group-hover:block"
+								class="pointer-events-none absolute bottom-full mb-2 hidden -translate-y-1 rounded bg-wood-dark px-2 py-1 text-[10px] whitespace-nowrap text-white group-hover:block"
 							>
 								Roll {num}: {count} ({actualPct.toFixed(1)}%)
 								<br />

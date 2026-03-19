@@ -239,17 +239,21 @@
 
 	<div class="flex min-h-0 flex-1 flex-col gap-4">
 		<div
-			class="flex flex-col rounded-2xl border-2 border-wood/10 bg-white/50 pt-2 px-3 pb-3 {gameLogCollapsed
+			class="flex flex-col rounded-2xl border-2 border-wood/10 bg-white/50 px-3 pt-2 pb-3 {gameLogCollapsed
 				? 'shrink-0 grow-0'
 				: 'min-h-0 flex-1'}"
 		>
 			<button
 				on:click={() => (gameLogCollapsed = !gameLogCollapsed)}
-				class="flex w-full items-center justify-between gap-2 text-left {gameLogCollapsed ? '' : 'mb-1.5'}"
+				class="flex w-full items-center justify-between gap-2 text-left {gameLogCollapsed
+					? ''
+					: 'mb-1.5'}"
 			>
 				<h3 class="text-sm font-bold tracking-wider text-wood-light uppercase">Game Log</h3>
 				<svg
-					class="h-4 w-4 shrink-0 text-wood-light transition-transform {gameLogCollapsed ? '' : 'rotate-90'}"
+					class="h-4 w-4 shrink-0 text-wood-light transition-transform {gameLogCollapsed
+						? ''
+						: 'rotate-90'}"
 					fill="none"
 					stroke="currentColor"
 					viewBox="0 0 24 24"

@@ -51,9 +51,7 @@
 		class="relative z-10 w-full max-w-md rounded-3xl border border-wood/10 bg-parchment/80 p-8 shadow-[0_20px_60px_rgba(30,77,107,0.1)] backdrop-blur-xl"
 	>
 		<div class="mb-10 text-center">
-			<a href="/" class="mb-4 inline-block text-3xl font-[900] tracking-tight text-wood"
-				>SETTLER</a
-			>
+			<a href="/" class="mb-4 inline-block text-3xl font-[900] tracking-tight text-wood">SETTLER</a>
 			<h1 class="mb-2 text-3xl font-black text-wood-dark">Welcome Back</h1>
 			<p class="font-medium text-wood-light/80">Log in to track your stats and join friends.</p>
 		</div>
