@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import ChatPanel from './ChatPanel.svelte';
 
 	type ChatMessage = {
@@ -49,6 +50,13 @@
 	}
 
 	let gameLogCollapsed = false;
+	let gameLogScrollEl: HTMLDivElement | undefined;
+
+	$: if (gameLog, !gameLogCollapsed) {
+		tick().then(() => {
+			gameLogScrollEl?.scrollTo({ top: gameLogScrollEl.scrollHeight });
+		});
+	}
 </script>
 
 <div class="flex h-full flex-col gap-4">
@@ -258,7 +266,10 @@
 				</svg>
 			</button>
 			{#if !gameLogCollapsed}
-				<div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto text-sm text-wood-dark/80">
+				<div
+					bind:this={gameLogScrollEl}
+					class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto text-sm text-wood-dark/80"
+				>
 					{#each gameLog as log}
 						<div class="rounded bg-white/60 px-2 py-1 shadow-sm">
 							<span class="mr-1 text-[10px] text-wood-light">

@@ -40,4 +40,18 @@ describe BoardTopology do
       edge_vertex_pairs.includes?([a.value, b.value].sort).should be_true
     end
   end
+
+  it "exposes neighboring tiles through shared edges" do
+    topology = BoardTopology.standard
+
+    center_tile = topology.tiles.keys.find! { |tile_id| topology.tiles[tile_id].x == 0 && topology.tiles[tile_id].y == 0 }
+    corner_tile = topology.tiles.keys.find! { |tile_id| topology.tiles[tile_id].x == -2 && topology.tiles[tile_id].y == -6 }
+
+    topology.neighboring_tiles(center_tile).size.should eq(6)
+    topology.neighboring_tiles(corner_tile).size.should eq(3)
+
+    topology.neighboring_tiles(center_tile).each do |neighbor_tile_id|
+      topology.neighboring_tiles(neighbor_tile_id).includes?(center_tile).should be_true
+    end
+  end
 end

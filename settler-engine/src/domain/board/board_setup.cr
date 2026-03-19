@@ -57,7 +57,10 @@ class BoardSetupGenerator
     shuffled_resources = RESOURCES.shuffle(random: rng)
 
     desert_index = shuffled_resources.index!(Resource::Desert)
-    non_desert_tokens = TOKENS.shuffle(random: rng)
+    non_desert_tile_ids = tile_ids.each_with_index.each_with_object([] of TileId) do |(tile_id, index), memo|
+      memo << tile_id unless shuffled_resources[index].desert?
+    end
+    non_desert_tokens = generate_non_adjacent_high_probability_tokens(topology, non_desert_tile_ids, rng)
 
     tile_setups = [] of TileSetup
     token_idx = 0
@@ -77,6 +80,35 @@ class BoardSetupGenerator
     harbors = generate_harbors(topology, rng)
 
     GeneratedBoardSetup.new(tile_setups, robber_tile_id, harbors)
+  end
+
+  private def self.generate_non_adjacent_high_probability_tokens(
+    topology : BoardTopology,
+    tile_ids : Array(TileId),
+    rng : Random,
+  ) : Array(Int32)
+    loop do
+      tokens = TOKENS.shuffle(random: rng)
+      token_by_tile_id = tile_ids.zip(tokens).to_h
+
+      return tokens if high_probability_tokens_separated?(topology, token_by_tile_id)
+    end
+  end
+
+  private def self.high_probability_tokens_separated?(
+    topology : BoardTopology,
+    token_by_tile_id : Hash(TileId, Int32),
+  ) : Bool
+    token_by_tile_id.each do |tile_id, token|
+      next unless token == 6 || token == 8
+
+      return false if topology.neighboring_tiles(tile_id).any? do |neighbor_tile_id|
+        neighbor_token = token_by_tile_id[neighbor_tile_id]?
+        neighbor_token == 6 || neighbor_token == 8
+      end
+    end
+
+    true
   end
 
   def self.generate_harbors(topology : BoardTopology, rng : Random) : Array(HarborAssignment)

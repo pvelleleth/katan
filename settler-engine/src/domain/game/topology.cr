@@ -227,6 +227,17 @@ class BoardTopology
     end
   end
 
+  def neighboring_tiles(tile_id : TileId) : Array(TileId)
+    tile = @tiles[tile_id]
+
+    tile.edge_ids.each_with_object([] of TileId) do |edge_id, memo|
+      @edges[edge_id].tile_ids.each do |neighbor_tile_id|
+        next if neighbor_tile_id == tile_id
+        memo << neighbor_tile_id unless memo.includes?(neighbor_tile_id)
+      end
+    end
+  end
+
   private def self.standard_tile_points : Array(GraphPoint)
     points = [] of GraphPoint
 
