@@ -51,6 +51,7 @@ export const game = pgTable('game', {
 	id: uuid('id').defaultRandom().primaryKey(),
 	shortCode: varchar('short_code', { length: 6 }).notNull().unique(),
 	status: varchar('status', { length: 20 }).notNull().default('waiting'),
+	isPublic: boolean('is_public').notNull().default(false),
 	settings: jsonb('settings').$type<GameSettings>().notNull().default(defaultGameSettings),
 	snapshot: jsonb('snapshot').$type<GameSnapshot>(),
 	snapshotVersion: integer('snapshot_version'),

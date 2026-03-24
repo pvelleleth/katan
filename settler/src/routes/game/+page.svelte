@@ -1,11 +1,33 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { authClient } from '$lib/auth-client';
+	import { PUBLIC_WS_URL } from '$env/static/public';
 
 	let joinCode = '';
 	let user: Record<string, any> | null = null;
 	let loading = true;
+	let publicGamesLoading = true;
+	let publicGamesError = '';
+	let createLobbyPending = false;
+	let publicLobbiesSocket: WebSocket | null = null;
+	let publicLobbiesReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+	let publicBootstrapToken = '';
+	let publicSocketConnected = false;
+	let teardownPublicSocket = false;
+	let suppressNextPublicSocketClose = false;
+
+	type PublicLobbySummary = {
+		shortCode: string;
+		hostPlayerId: string;
+		hostDisplayName: string;
+		participantCount: number;
+		maxPlayers: number;
+		createdAt: string;
+		isPublic: boolean;
+	};
+
+	let publicGames: PublicLobbySummary[] = [];
 
 	onMount(async () => {
 		try {
@@ -26,20 +48,161 @@
 			console.error('Auth error', e);
 		} finally {
 			loading = false;
+			await connectPublicLobbies();
 		}
 	});
 
-	async function handleCreateLobby() {
+	onDestroy(() => {
+		teardownPublicSocket = true;
+		if (publicLobbiesReconnectTimeout) {
+			clearTimeout(publicLobbiesReconnectTimeout);
+		}
+		publicLobbiesSocket?.close();
+	});
+
+	function sortPublicLobbies(a: PublicLobbySummary, b: PublicLobbySummary) {
+		return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+	}
+
+	function upsertPublicLobby(nextLobby: PublicLobbySummary) {
+		const existingIndex = publicGames.findIndex((game) => game.shortCode === nextLobby.shortCode);
+		if (existingIndex === -1) {
+			publicGames = [...publicGames, nextLobby].sort(sortPublicLobbies);
+			return;
+		}
+
+		publicGames = publicGames
+			.map((game, index) => (index === existingIndex ? nextLobby : game))
+			.sort(sortPublicLobbies);
+	}
+
+	function removePublicLobby(shortCode: string) {
+		publicGames = publicGames.filter((game) => game.shortCode !== shortCode);
+	}
+
+	async function fetchBootstrapToken() {
+		const res = await fetch('/api/ws-bootstrap');
+		if (!res.ok) {
+			throw new Error('Unable to authorize realtime lobby updates.');
+		}
+
+		const data = await res.json();
+		if (!data?.token || !data?.playerId) {
+			throw new Error('Invalid websocket bootstrap response.');
+		}
+
+		publicBootstrapToken = data.token;
+		return data as { token: string; playerId: string; name: string; expiresAt: number };
+	}
+
+	async function connectPublicLobbies(forceReconnect = false) {
+		publicGamesLoading = true;
+		publicGamesError = '';
+
+		if (forceReconnect) {
+			suppressNextPublicSocketClose = true;
+			publicLobbiesSocket?.close();
+		}
+
 		try {
-			const res = await fetch('/api/games', { method: 'POST' });
-			if (res.ok) {
-				const { game } = await res.json();
-				goto(`/game/${game.shortCode}`);
-			} else {
-				console.error('Failed to create lobby');
+			const { token } = await fetchBootstrapToken();
+			teardownPublicSocket = false;
+			publicLobbiesSocket = new WebSocket(`${PUBLIC_WS_URL}/ws/public-lobbies`);
+
+			publicLobbiesSocket.onopen = () => {
+				publicSocketConnected = true;
+				publicLobbiesSocket?.send(
+					JSON.stringify({
+						action: 'subscribe_public_lobbies',
+						payload: { token }
+					})
+				);
+			};
+
+			publicLobbiesSocket.onmessage = (event) => {
+				const msg = JSON.parse(event.data);
+
+				if (msg.type === 'public_lobbies_snapshot') {
+					publicGames = Array.isArray(msg.lobbies)
+						? [...msg.lobbies].sort(sortPublicLobbies)
+						: [];
+					publicGamesLoading = false;
+					publicGamesError = '';
+					return;
+				}
+
+				if (msg.type === 'public_lobby_created' || msg.type === 'public_lobby_updated') {
+					if (msg.lobby) {
+						upsertPublicLobby(msg.lobby);
+					}
+					publicGamesLoading = false;
+					return;
+				}
+
+				if (msg.type === 'public_lobby_removed') {
+					if (typeof msg.short_code === 'string') {
+						removePublicLobby(msg.short_code);
+					}
+					publicGamesLoading = false;
+					return;
+				}
+
+				if (msg.type === 'create_lobby_success' && msg.lobby?.shortCode) {
+					goto(`/game/${msg.lobby.shortCode}`);
+					return;
+				}
+
+				if (msg.type === 'error') {
+					publicGamesLoading = false;
+					publicGamesError = msg.message || 'Unable to load public lobbies right now.';
+				}
+			};
+
+			publicLobbiesSocket.onclose = () => {
+				publicSocketConnected = false;
+				if (suppressNextPublicSocketClose) {
+					suppressNextPublicSocketClose = false;
+					return;
+				}
+				if (teardownPublicSocket) {
+					return;
+				}
+
+				publicGamesLoading = true;
+				publicLobbiesReconnectTimeout = setTimeout(() => {
+					connectPublicLobbies(true).catch((error) => {
+						console.error('Failed to reconnect public lobbies socket', error);
+					});
+				}, 1500);
+			};
+		} catch (e) {
+			console.error('Failed to load public games', e);
+			publicGamesError = 'Unable to load public lobbies right now.';
+			publicGamesLoading = false;
+		}
+	}
+
+	async function handleCreateLobby() {
+		if (createLobbyPending) return;
+
+		createLobbyPending = true;
+		try {
+			if (!publicSocketConnected || !publicLobbiesSocket || !publicBootstrapToken) {
+				await connectPublicLobbies(true);
 			}
+
+			const { token } = await fetchBootstrapToken();
+			publicLobbiesSocket?.send(
+				JSON.stringify({
+					action: 'create_lobby',
+					payload: { token }
+				})
+			);
 		} catch (e) {
 			console.error(e);
+			publicGamesError = 'Unable to create a lobby right now.';
+		} finally {
+			createLobbyPending = false;
 		}
 	}
 
@@ -191,6 +354,83 @@
 							>
 						</button>
 					</div>
+				</div>
+
+				<div class="rounded-[1.25rem] border border-wood/15 bg-white/70 p-4 shadow-sm">
+					<div class="mb-3 flex items-center justify-between gap-3">
+						<div class="flex items-center gap-3 px-1 font-bold text-wood-dark">
+							<div class="rounded-xl bg-forest/10 p-2 text-forest">
+								<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+									><path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2.5"
+										d="M17 20h5V4H2v16h5m10 0v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4m10 0H7"
+									/></svg
+								>
+							</div>
+							<span class="tracking-wide">Public Lobbies</span>
+						</div>
+						<button
+							on:click={() => connectPublicLobbies(true)}
+							type="button"
+							class="rounded-xl border border-wood/15 px-3 py-2 text-xs font-bold text-wood-dark transition-all hover:border-ocean/30 hover:text-ocean"
+						>
+							Refresh
+						</button>
+					</div>
+
+					{#if publicGamesLoading}
+						<div class="space-y-2">
+							<div class="h-16 animate-pulse rounded-2xl bg-wood/10"></div>
+							<div class="h-16 animate-pulse rounded-2xl bg-wood/10"></div>
+						</div>
+					{:else if publicGamesError}
+						<p
+							class="rounded-2xl border border-brick/15 bg-brick/5 px-4 py-3 text-sm font-semibold text-brick"
+						>
+							{publicGamesError}
+						</p>
+					{:else if publicGames.length === 0}
+						<p
+							class="rounded-2xl border border-wood/10 bg-wood/5 px-4 py-3 text-sm font-semibold text-wood-dark/80"
+						>
+							No public lobbies are open right now.
+						</p>
+					{:else}
+						<div class="flex flex-col gap-3">
+							{#each publicGames as publicGame}
+								<div
+									class="flex items-center justify-between gap-3 rounded-2xl border border-wood/10 bg-white/70 px-4 py-3"
+								>
+									<div class="min-w-0">
+										<div class="flex items-center gap-2">
+											<span class="text-sm font-black text-wood-dark">
+												{publicGame.hostDisplayName}
+											</span>
+											<span
+												class="rounded-full bg-forest/10 px-2 py-0.5 text-[0.65rem] font-black tracking-wider text-forest uppercase"
+											>
+												Public
+											</span>
+										</div>
+										<p class="text-xs font-semibold tracking-wide text-wood-light uppercase">
+											{publicGame.shortCode} · {publicGame.participantCount}/{publicGame.maxPlayers}
+											players
+										</p>
+									</div>
+
+									<button
+										on:click={() => goto(`/game/${publicGame.shortCode}`)}
+										type="button"
+										class="rounded-xl border border-ocean/20 bg-ocean px-4 py-2 text-sm font-bold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:bg-[#1880a8]"
+									>
+										Join
+									</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>

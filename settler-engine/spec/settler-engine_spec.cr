@@ -1,12 +1,98 @@
 require "./spec_helper"
+require "base64"
+require "openssl/hmac"
 
 class SnapshotStore < Settler::Engine::Infrastructure::Persistence::GameEventStore
   getter snapshots = Hash(String, Settler::Engine::Infrastructure::Persistence::PersistedGameSnapshot).new
+  getter waiting_lobbies = Hash(String, Settler::Engine::Infrastructure::Persistence::PersistedLobby).new
+
+  @next_lobby_number = 1
+
+  def create_lobby(host_player_id : String, is_public : Bool, settings_json : String) : Settler::Engine::Infrastructure::Persistence::PersistedLobby
+    short_code = "L#{@next_lobby_number.to_s.rjust(5, '0')}"
+    @next_lobby_number += 1
+
+    lobby = Settler::Engine::Infrastructure::Persistence::PersistedLobby.new(
+      short_code: short_code,
+      host_player_id: host_player_id,
+      status: "waiting",
+      is_public: is_public,
+      settings_json: settings_json,
+      created_at: Time.utc,
+      participants: [
+        Settler::Engine::Infrastructure::Persistence::PersistedLobbyParticipant.new(
+          player_id: host_player_id,
+          player_name: "Player",
+          ready: false
+        ),
+      ]
+    )
+
+    @waiting_lobbies[short_code] = lobby
+    lobby
+  end
+
+  def load_waiting_lobby(lobby_code : String) : Settler::Engine::Infrastructure::Persistence::PersistedLobby?
+    @waiting_lobbies[lobby_code]?
+  end
+
+  def load_public_waiting_lobbies : Array(Settler::Engine::Infrastructure::Persistence::PersistedLobby)
+    @waiting_lobbies.values.select(&.is_public)
+  end
+
+  def add_participant(lobby_code : String, player_id : String, ready : Bool = false) : Nil
+    return unless lobby = @waiting_lobbies[lobby_code]?
+    return if lobby.participants.any? { |participant| participant.player_id == player_id }
+
+    participants = lobby.participants + [
+      Settler::Engine::Infrastructure::Persistence::PersistedLobbyParticipant.new(
+        player_id: player_id,
+        player_name: "Player",
+        ready: ready
+      ),
+    ]
+    @waiting_lobbies[lobby_code] = lobby.copy_with(participants: participants)
+  end
+
+  def remove_participant(lobby_code : String, player_id : String) : Nil
+    return unless lobby = @waiting_lobbies[lobby_code]?
+
+    participants = lobby.participants.reject { |participant| participant.player_id == player_id }
+    @waiting_lobbies[lobby_code] = lobby.copy_with(participants: participants)
+  end
+
+  def update_participant_ready(lobby_code : String, player_id : String, ready : Bool) : Nil
+    return unless lobby = @waiting_lobbies[lobby_code]?
+
+    participants = lobby.participants.map do |participant|
+      if participant.player_id == player_id
+        participant.copy_with(ready: ready)
+      else
+        participant
+      end
+    end
+
+    @waiting_lobbies[lobby_code] = lobby.copy_with(participants: participants)
+  end
+
+  def update_lobby_visibility(lobby_code : String, is_public : Bool) : Nil
+    return unless lobby = @waiting_lobbies[lobby_code]?
+
+    @waiting_lobbies[lobby_code] = lobby.copy_with(is_public: is_public)
+  end
 
   def update_game_settings(lobby_code : String, settings_json : String) : Nil
     if snapshot = @snapshots[lobby_code]?
       @snapshots[lobby_code] = snapshot.copy_with(settings_json: settings_json)
     end
+
+    if lobby = @waiting_lobbies[lobby_code]?
+      @waiting_lobbies[lobby_code] = lobby.copy_with(settings_json: settings_json)
+    end
+  end
+
+  def mark_game_started(lobby_code : String) : Nil
+    @waiting_lobbies.delete(lobby_code)
   end
 
   def append(
@@ -40,6 +126,28 @@ def test_client(lobby_id : String) : Settler::Engine::Transport::WebSocket::Clie
   client
 end
 
+def signed_bootstrap_token(
+  secret : String,
+  player_id : String = "player-1",
+  name : String = "Alice",
+  lobby_id : String? = nil,
+  exp : Int64 = (Time.utc + 5.minutes).to_unix,
+) : String
+  payload_json = JSON.build do |json|
+    json.object do
+      json.field "userId", "user-1"
+      json.field "playerId", player_id
+      json.field "name", name
+      json.field "exp", exp
+      json.field "lobbyId", lobby_id if lobby_id
+    end
+  end
+
+  encoded_payload = Base64.urlsafe_encode(payload_json, padding: false)
+  signature = Base64.urlsafe_encode(OpenSSL::HMAC.digest(:sha256, secret, encoded_payload), padding: false)
+  "#{encoded_payload}.#{signature}"
+end
+
 describe Settler::Engine::Domain::Player do
   it "tracks disconnected state without removing the player" do
     player = Settler::Engine::Domain::Player.new("player-1", "Alice")
@@ -61,6 +169,36 @@ describe Settler::Engine::Domain::Player do
     player.connected.should be_true
     player.disconnected_at.should be_nil
     player.ready.should be_false
+  end
+end
+
+describe Settler::Engine::Transport::WebSocket::BootstrapTokenVerifier do
+  it "accepts a valid signed token with the expected lobby scope" do
+    verifier = Settler::Engine::Transport::WebSocket::BootstrapTokenVerifier.new("test-secret")
+
+    payload = verifier.verify(signed_bootstrap_token("test-secret", lobby_id: "ABC123"), "ABC123")
+
+    payload.should_not be_nil
+    payload.not_nil!.player_id.should eq("player-1")
+  end
+
+  it "rejects tokens with the wrong lobby scope" do
+    verifier = Settler::Engine::Transport::WebSocket::BootstrapTokenVerifier.new("test-secret")
+
+    payload = verifier.verify(signed_bootstrap_token("test-secret", lobby_id: "ABC123"), "DIFF99")
+
+    payload.should be_nil
+  end
+
+  it "rejects expired tokens" do
+    verifier = Settler::Engine::Transport::WebSocket::BootstrapTokenVerifier.new("test-secret")
+
+    payload = verifier.verify(
+      signed_bootstrap_token("test-secret", exp: (Time.utc - 1.minute).to_unix),
+      nil
+    )
+
+    payload.should be_nil
   end
 end
 
@@ -108,13 +246,78 @@ describe Settler::Engine::Application::LobbyManager do
     player.connected.should be_true
   end
 
+  it "creates public lobbies through the persistence store and exposes them in the public snapshot" do
+    store = SnapshotStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store)
+
+    lobby = manager.create_lobby("player-1", "Alice", true)
+
+    lobby.host_id.should eq("player-1")
+    store.load_waiting_lobby(lobby.id).should_not be_nil
+
+    summaries = manager.public_lobby_summaries
+    summaries.size.should eq(1)
+    summaries.first.short_code.should eq(lobby.id)
+    summaries.first.participant_count.should eq(1)
+  end
+
+  it "prevents joins that would exceed the configured max players" do
+    store = SnapshotStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store)
+    lobby = manager.create_lobby("player-1", "Alice", true)
+    client = test_client(lobby.id)
+    manager.handle_join(lobby.id, "player-1", "Alice", client)
+
+    manager.update_settings(
+      lobby.id,
+      JSON.parse(
+        {
+          turnTimerEnabled: true,
+          turnTimeSeconds: 120,
+          maxPlayers: 1,
+          victoryPoints: 10,
+          useSeafarers: false,
+          useTraders: false,
+          useExplorers: false,
+        }.to_json
+      ).as_h
+    )
+
+    second_client = test_client(lobby.id)
+    manager.handle_join(lobby.id, "player-2", "Bob", second_client)
+
+    manager.get_or_create_lobby(lobby.id).players.map(&.id).should eq(["player-1"])
+  end
+
+  it "restores public waiting lobbies from the persistence store on startup" do
+    store = SnapshotStore.new
+    creator = Settler::Engine::Application::LobbyManager.new(store)
+    creator.create_lobby("player-1", "Alice", true)
+
+    restored = Settler::Engine::Application::LobbyManager.new(store)
+
+    restored.public_lobby_summaries.map(&.host_player_id).should eq(["player-1"])
+  end
+
+  it "removes a public lobby from the snapshot once the game starts" do
+    store = SnapshotStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store)
+    lobby = manager.create_lobby("player-1", "Alice", true)
+    host_client = test_client(lobby.id)
+    manager.handle_join(lobby.id, "player-1", "Alice", host_client)
+
+    manager.start_game(lobby.id)
+
+    manager.public_lobby_summaries.should be_empty
+  end
+
   it "restores a cleaned up game from the saved snapshot on reconnect" do
     store = SnapshotStore.new
     original_manager = Settler::Engine::Application::LobbyManager.new(store)
     first_client = test_client("SNAP01")
     second_client = test_client("SNAP01")
 
-    original_manager.handle_join("SNAP01", "player-1", "Alice", first_client, "player-1")
+    original_manager.handle_join("SNAP01", "player-1", "Alice", first_client)
     original_manager.handle_join("SNAP01", "player-2", "Bob", second_client)
     original_manager.start_game("SNAP01")
     complete_setup_through_manager!(original_manager, "SNAP01")
@@ -139,7 +342,7 @@ describe Settler::Engine::Application::LobbyManager do
     restored_lobby.players.all? { |player| !player.connected }.should be_true
 
     rejoining_client = test_client("SNAP01")
-    restored_manager.handle_join("SNAP01", "player-1", "Alice", rejoining_client, "player-1")
+    restored_manager.handle_join("SNAP01", "player-1", "Alice", rejoining_client)
 
     restored_state = restored_manager.games["SNAP01"]
     restored_state.version.should eq(snapshot_before_cleanup["version"].as_i)
@@ -159,7 +362,7 @@ describe Settler::Engine::Application::LobbyManager do
     second_client = test_client("SNAP02")
     third_client = test_client("SNAP02")
 
-    manager.handle_join("SNAP02", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("SNAP02", "player-1", "Alice", first_client)
     manager.handle_join("SNAP02", "player-2", "Bob", second_client)
     manager.handle_join("SNAP02", "player-3", "Cara", third_client)
     manager.start_game("SNAP02")
@@ -208,7 +411,7 @@ describe Settler::Engine::Application::LobbyManager do
     first_client = test_client("SNAP04")
     second_client = test_client("SNAP04")
 
-    manager.handle_join("SNAP04", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("SNAP04", "player-1", "Alice", first_client)
     manager.handle_join("SNAP04", "player-2", "Bob", second_client)
     manager.start_game("SNAP04")
     complete_setup_through_manager!(manager, "SNAP04")
@@ -243,7 +446,7 @@ describe Settler::Engine::Application::LobbyManager do
 
     restored_manager = Settler::Engine::Application::LobbyManager.new(store)
     rejoining_client = test_client("SNAP04")
-    restored_manager.handle_join("SNAP04", "player-1", "Alice", rejoining_client, "player-1")
+    restored_manager.handle_join("SNAP04", "player-1", "Alice", rejoining_client)
 
     restored_game = restored_manager.games["SNAP04"]
     restored_game.turn.phase.should eq(TurnPhase::StealResource)
@@ -262,7 +465,7 @@ describe Settler::Engine::Application::LobbyManager do
     first_client = test_client("SNAP03")
     second_client = test_client("SNAP03")
 
-    manager.handle_join("SNAP03", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("SNAP03", "player-1", "Alice", first_client)
     manager.handle_join("SNAP03", "player-2", "Bob", second_client)
     manager.start_game("SNAP03")
 
@@ -282,7 +485,7 @@ describe Settler::Engine::Application::LobbyManager do
 
     restored_manager = Settler::Engine::Application::LobbyManager.new(store)
     rejoining_client = test_client("SNAP03")
-    restored_manager.handle_join("SNAP03", "player-2", "Bob", rejoining_client, "player-1")
+    restored_manager.handle_join("SNAP03", "player-2", "Bob", rejoining_client)
 
     restored_game = restored_manager.games["SNAP03"]
     restored_game.turn.phase.should eq(TurnPhase::GameOver)

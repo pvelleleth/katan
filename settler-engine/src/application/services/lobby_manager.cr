@@ -5,6 +5,15 @@ require "json"
 require "time"
 
 module Settler::Engine::Application
+  record PublicLobbySummary,
+    short_code : String,
+    host_player_id : String,
+    host_display_name : String,
+    participant_count : Int32,
+    max_players : Int32,
+    created_at : String,
+    is_public : Bool
+
   abstract class DiceRoller
     abstract def roll : DiceRoll
   end
@@ -23,16 +32,18 @@ module Settler::Engine::Application
     property lobbies = Hash(String, Domain::Lobby).new
     property clients = Hash(String, Array(Transport::WebSocket::Client)).new
     property games = Hash(String, GameState).new
+    property public_clients = [] of Transport::WebSocket::Client
 
     def initialize(
       @game_event_store : Infrastructure::Persistence::GameEventStore = Infrastructure::Persistence::NullGameEventStore.new,
       @dice_roller : DiceRoller = RandomDiceRoller.new,
     )
       @timer_versions = Hash(String, Int32).new(0)
+      hydrate_public_lobbies_from_store
     end
 
     def get_or_create_lobby(id : String) : Domain::Lobby
-      restore_lobby_from_snapshot(id) unless @lobbies.has_key?(id)
+      restore_lobby_from_store(id) unless @lobbies.has_key?(id)
       @lobbies[id] ||= Domain::Lobby.new(id)
     end
 
@@ -41,9 +52,58 @@ module Settler::Engine::Application
       clients_list << client unless clients_list.includes?(client)
     end
 
-    def handle_join(lobby_id : String, player_id : String, name : String, client : Transport::WebSocket::Client, host_id : String? = nil)
+    def add_public_client(client : Transport::WebSocket::Client)
+      @public_clients << client unless @public_clients.includes?(client)
+      client.public_subscriber = true
+    end
+
+    def remove_public_client(client : Transport::WebSocket::Client)
+      @public_clients.delete(client)
+      client.public_subscriber = false
+    end
+
+    def public_lobby_summaries : Array(PublicLobbySummary)
+      @lobbies.each_value.compact_map do |lobby|
+        public_lobby_summary(lobby)
+      end.to_a.sort_by { |summary| summary.created_at }.reverse
+    end
+
+    def subscribe_public_lobbies(client : Transport::WebSocket::Client)
+      add_public_client(client)
+      client.send_json(
+        {
+          type:    "public_lobbies_snapshot",
+          lobbies: public_lobby_summaries.map { |summary| serialize_public_lobby(summary) },
+        }.to_json
+      )
+    end
+
+    def create_lobby(player_id : String, player_name : String, is_public : Bool = false) : Domain::Lobby
+      default_settings = default_settings_json
+      persisted = @game_event_store.create_lobby(player_id, is_public, default_settings.to_json)
+      lobby = hydrate_waiting_lobby(persisted)
+
+      if player = lobby.find_player(player_id)
+        player.name = player_name
+        player.ready = false
+        player.connected = false
+      end
+
+      @lobbies[lobby.id] = lobby
+      broadcast_public_lobby_change(lobby.id, nil)
+      lobby
+    end
+
+    def handle_join(lobby_id : String, player_id : String, name : String, client : Transport::WebSocket::Client)
+      previous_summary = current_public_lobby_summary_for(lobby_id)
       lobby = get_or_create_lobby(lobby_id)
-      lobby.host_id = host_id if host_id
+
+      if lobby_full_for_new_player?(lobby, player_id)
+        client.send_json({type: "error", code: "lobby_full", message: "This lobby is full."}.to_json)
+        return
+      end
+
+      @game_event_store.add_participant(lobby_id, player_id, false) unless lobby.find_player(player_id)
 
       player = lobby.find_player(player_id) || Domain::Player.new(player_id, name)
       player.name = name
@@ -55,6 +115,7 @@ module Settler::Engine::Application
       add_client(lobby_id, client)
 
       broadcast_lobby_state(lobby_id)
+      broadcast_public_lobby_change(lobby_id, previous_summary)
 
       if game_state = @games[lobby_id]?
         client.send_json(
@@ -67,6 +128,8 @@ module Settler::Engine::Application
     end
 
     def disconnect_client(client : Transport::WebSocket::Client)
+      remove_public_client(client) if client.public_subscriber
+
       if lid = client.lobby_id
         if list = @clients[lid]?
           list.delete(client)
@@ -89,10 +152,12 @@ module Settler::Engine::Application
       remove_player(client.lobby_id, client.player_id, "player_left", "left the lobby")
       client.player_id = nil
       client.lobby_id = nil
+      remove_public_client(client) if client.public_subscriber
     end
 
     def remove_player(lobby_id : String?, player_id : String?, event_type : String? = nil, message_suffix : String? = nil) : Bool
       return false unless lobby_id && player_id
+      previous_summary = current_public_lobby_summary_for(lobby_id)
 
       if list = @clients[lobby_id]?
         list.reject! { |client| client.player_id == player_id }
@@ -103,6 +168,7 @@ module Settler::Engine::Application
         if player = lobby.find_player(player_id)
           player.disconnect_version += 1
           lobby.remove_player(player_id)
+          @game_event_store.remove_participant(lobby_id, player_id) unless @games[lobby_id]?
           if event_type
             log_event(
               lobby_id,
@@ -119,6 +185,7 @@ module Settler::Engine::Application
       end
 
       broadcast_lobby_state(lobby_id) if @lobbies[lobby_id]?
+      broadcast_public_lobby_change(lobby_id, previous_summary)
       removed
     end
 
@@ -142,6 +209,7 @@ module Settler::Engine::Application
       return false unless player.connected
 
       player.ready = ready_state
+      @game_event_store.update_participant_ready(lobby_id, player_id, ready_state)
       log_event(
         lobby_id,
         "player_ready_changed",
@@ -154,6 +222,7 @@ module Settler::Engine::Application
     end
 
     def update_settings(lobby_id : String, settings : Hash(String, JSON::Any))
+      previous_summary = current_public_lobby_summary_for(lobby_id)
       lobby = get_or_create_lobby(lobby_id)
       lobby.settings = settings
       if game_state = @games[lobby_id]?
@@ -163,8 +232,18 @@ module Settler::Engine::Application
       end
       @game_event_store.update_game_settings(lobby_id, settings.to_json)
       broadcast_lobby_state(lobby_id)
+      broadcast_public_lobby_change(lobby_id, previous_summary)
     rescue ex
       puts "Failed to persist game settings for #{lobby_id}: #{ex.message}"
+    end
+
+    def update_visibility(lobby_id : String, is_public : Bool)
+      previous_summary = current_public_lobby_summary_for(lobby_id)
+      lobby = get_or_create_lobby(lobby_id)
+      lobby.is_public = is_public
+      @game_event_store.update_lobby_visibility(lobby_id, is_public)
+      broadcast_lobby_state(lobby_id)
+      broadcast_public_lobby_change(lobby_id, previous_summary)
     end
 
     def send_chat_message(lobby_id : String, player_id : String, message : String) : Bool
@@ -208,6 +287,7 @@ module Settler::Engine::Application
     end
 
     def start_game(lobby_id : String)
+      previous_summary = current_public_lobby_summary_for(lobby_id)
       lobby = get_or_create_lobby(lobby_id)
       game_state = build_game_state(lobby)
       @games[lobby_id] = game_state
@@ -215,6 +295,7 @@ module Settler::Engine::Application
       game_started = GameStarted.new(next_version(game_state))
       game_state.apply!(game_started)
       initialize_turn_timer!(lobby_id, game_state)
+      @game_event_store.mark_game_started(lobby_id)
 
       @game_event_store.append(
         lobby_code: lobby_id,
@@ -238,6 +319,7 @@ module Settler::Engine::Application
 
       broadcast_game_state(lobby_id, "game_started")
       broadcast_lobby_state(lobby_id)
+      broadcast_public_lobby_change(lobby_id, previous_summary)
     rescue ex
       puts "Failed to start game for #{lobby_id}: #{ex.message}"
     end
@@ -648,8 +730,10 @@ module Settler::Engine::Application
       return unless lobby = @lobbies[lobby_id]?
       return unless player = lobby.find_player(player_id)
       return unless !player.connected && player.disconnect_version == disconnect_version
+      previous_summary = current_public_lobby_summary_for(lobby_id)
 
       lobby.remove_player(player_id)
+      @game_event_store.remove_participant(lobby_id, player_id) unless @games[lobby_id]?
       log_event(
         lobby_id,
         "player_disconnected",
@@ -659,6 +743,7 @@ module Settler::Engine::Application
       )
       cleanup_lobby(lobby_id, lobby)
       broadcast_lobby_state(lobby_id) if @lobbies[lobby_id]?
+      broadcast_public_lobby_change(lobby_id, previous_summary)
     end
 
     private def cleanup_lobby(lobby_id : String, lobby : Domain::Lobby)
@@ -669,8 +754,13 @@ module Settler::Engine::Application
       @clients.delete(lobby_id)
     end
 
-    private def restore_lobby_from_snapshot(lobby_id : String) : Nil
+    private def restore_lobby_from_store(lobby_id : String) : Nil
       return if @lobbies.has_key?(lobby_id)
+
+      if persisted_lobby = @game_event_store.load_waiting_lobby(lobby_id)
+        @lobbies[lobby_id] = hydrate_waiting_lobby(persisted_lobby)
+        return
+      end
 
       persisted_snapshot = @game_event_store.load_game_snapshot(lobby_id)
       return unless persisted_snapshot
@@ -684,7 +774,38 @@ module Settler::Engine::Application
       @lobbies[lobby_id] = lobby
       schedule_turn_timer(lobby_id, game_state)
     rescue ex
-      puts "Failed to restore game snapshot for #{lobby_id}: #{ex.message}"
+      puts "Failed to restore persisted lobby for #{lobby_id}: #{ex.message}"
+    end
+
+    private def hydrate_waiting_lobby(persisted_lobby : Infrastructure::Persistence::PersistedLobby) : Domain::Lobby
+      lobby = Domain::Lobby.new(persisted_lobby.short_code)
+      lobby.host_id = persisted_lobby.host_player_id
+      lobby.is_public = persisted_lobby.is_public
+      lobby.created_at = persisted_lobby.created_at
+      lobby.settings =
+        if persisted_lobby.settings_json
+          parse_json_hash(persisted_lobby.settings_json)
+        else
+          default_settings_json
+        end
+
+      persisted_lobby.participants.each do |participant|
+        player = Domain::Player.new(participant.player_id, participant.player_name)
+        player.ready = participant.ready
+        player.connected = false
+        player.disconnected_at = Time.utc
+        lobby.add_player(player)
+      end
+
+      lobby
+    end
+
+    private def hydrate_public_lobbies_from_store : Nil
+      @game_event_store.load_public_waiting_lobbies.each do |persisted_lobby|
+        @lobbies[persisted_lobby.short_code] = hydrate_waiting_lobby(persisted_lobby)
+      end
+    rescue ex
+      puts "Failed to restore public lobbies from store: #{ex.message}"
     end
 
     private def hydrate_lobby(lobby_id : String, game_state : GameState, settings : Hash(String, JSON::Any)) : Domain::Lobby
@@ -901,6 +1022,98 @@ module Settler::Engine::Application
         pile_json["sheep"].as_i.to_i32,
         pile_json["wheat"].as_i.to_i32,
         pile_json["ore"].as_i.to_i32
+      )
+    end
+
+    private def lobby_full_for_new_player?(lobby : Domain::Lobby, player_id : String) : Bool
+      return false if lobby.find_player(player_id)
+      lobby.players.size >= max_players_for(lobby)
+    end
+
+    private def current_public_lobby_summary_for(lobby_id : String) : PublicLobbySummary?
+      @lobbies[lobby_id]?.try do |lobby|
+        public_lobby_summary(lobby)
+      end
+    end
+
+    private def public_lobby_summary(lobby : Domain::Lobby) : PublicLobbySummary?
+      return nil unless lobby.is_public
+      return nil if @games[lobby.id]?
+      return nil if lobby.players.size >= max_players_for(lobby)
+      return nil unless host_id = lobby.host_id
+
+      host_player = lobby.find_player(host_id)
+      host_name = host_player.try(&.name) || "Player"
+
+      PublicLobbySummary.new(
+        short_code: lobby.id,
+        host_player_id: host_id,
+        host_display_name: host_name,
+        participant_count: lobby.players.size.to_i32,
+        max_players: max_players_for(lobby),
+        created_at: lobby.created_at.to_rfc3339,
+        is_public: lobby.is_public
+      )
+    end
+
+    private def broadcast_public_lobby_change(lobby_id : String, previous_summary : PublicLobbySummary?) : Nil
+      current_summary = current_public_lobby_summary_for(lobby_id)
+
+      if previous_summary.nil? && current_summary.nil?
+        return
+      elsif previous_summary.nil?
+        broadcast_public_event("public_lobby_created", current_summary)
+      elsif current_summary.nil?
+        broadcast_public_event("public_lobby_removed", previous_summary)
+      else
+        broadcast_public_event("public_lobby_updated", current_summary)
+      end
+    end
+
+    private def broadcast_public_event(event_type : String, summary : PublicLobbySummary?) : Nil
+      return if @public_clients.empty?
+      return unless summary
+
+      payload =
+        if event_type == "public_lobby_removed"
+          {type: event_type, short_code: summary.short_code}
+        else
+          {type: event_type, lobby: serialize_public_lobby(summary)}
+        end
+
+      json = payload.to_json
+      @public_clients.each do |client|
+        client.send_json(json)
+      end
+    end
+
+    private def serialize_public_lobby(summary : PublicLobbySummary)
+      {
+        shortCode:        summary.short_code,
+        hostPlayerId:     summary.host_player_id,
+        hostDisplayName:  summary.host_display_name,
+        participantCount: summary.participant_count,
+        maxPlayers:       summary.max_players,
+        createdAt:        summary.created_at,
+        isPublic:         summary.is_public,
+      }
+    end
+
+    private def max_players_for(lobby : Domain::Lobby) : Int32
+      lobby.settings["maxPlayers"]?.try(&.as_i.to_i32) || 4
+    end
+
+    private def default_settings_json : Hash(String, JSON::Any)
+      parse_json_hash(
+        {
+          turnTimerEnabled: true,
+          turnTimeSeconds:  120,
+          maxPlayers:       4,
+          victoryPoints:    10,
+          useSeafarers:     false,
+          useTraders:       false,
+          useExplorers:     false,
+        }.to_json
       )
     end
 

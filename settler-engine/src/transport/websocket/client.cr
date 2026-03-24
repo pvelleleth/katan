@@ -5,6 +5,7 @@ module Settler::Engine::Transport::WebSocket
     getter socket : HTTP::WebSocket
     property player_id : String?
     property lobby_id : String?
+    property public_subscriber : Bool = false
 
     def initialize(@socket : HTTP::WebSocket)
     end

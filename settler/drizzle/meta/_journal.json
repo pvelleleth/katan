@@ -29,6 +29,20 @@
       "when": 1773456000000,
       "tag": "0003_game_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1774245600000,
+      "tag": "0004_public_game_lobbies",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1774371258297,
+      "tag": "0005_quiet_sentinel",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 require "http/server"
 require "http/web_socket"
 require "json"
+require "./bootstrap_token"
 require "./client"
 require "./message"
 require "../../application/services/lobby_manager"
@@ -10,42 +11,95 @@ module Settler::Engine::Transport::WebSocket
     include HTTP::Handler
 
     def initialize(@lobby_manager : Application::LobbyManager)
+      @bootstrap_verifier = BootstrapTokenVerifier.new
     end
 
     def call(context)
       request = context.request
 
-      if request.path.starts_with?("/ws/lobby/")
-        # Extract the lobby ID from the path, e.g. /ws/lobby/123
+      if request.path == "/ws/public-lobbies"
+        handle_public_socket(context)
+      elsif request.path.starts_with?("/ws/lobby/")
         lobby_id = request.path.sub("/ws/lobby/", "")
+        return call_next(context) if lobby_id.empty?
 
-        # Check if the path format was correct
-        if lobby_id.empty?
-          call_next(context)
-          return
-        end
-
-        # Upgrade to WebSocket
-        ws_handler = HTTP::WebSocketHandler.new do |ws, _ctx|
-          client = Client.new(ws)
-          client.lobby_id = lobby_id
-
-          ws.on_message do |msg|
-            handle_message(client, msg)
-          end
-
-          ws.on_close do
-            @lobby_manager.disconnect_client(client)
-          end
-        end
-
-        ws_handler.call(context)
+        handle_lobby_socket(context, lobby_id)
       else
         call_next(context)
       end
     end
 
-    private def handle_message(client : Client, msg : String)
+    private def handle_public_socket(context)
+      ws_handler = HTTP::WebSocketHandler.new do |ws, _ctx|
+        client = Client.new(ws)
+
+        ws.on_message do |msg|
+          handle_public_message(client, msg)
+        end
+
+        ws.on_close do
+          @lobby_manager.remove_public_client(client)
+        end
+      end
+
+      ws_handler.call(context)
+    end
+
+    private def handle_lobby_socket(context, lobby_id : String)
+      ws_handler = HTTP::WebSocketHandler.new do |ws, _ctx|
+        client = Client.new(ws)
+        client.lobby_id = lobby_id
+
+        ws.on_message do |msg|
+          handle_lobby_message(client, msg)
+        end
+
+        ws.on_close do
+          @lobby_manager.disconnect_client(client)
+        end
+      end
+
+      ws_handler.call(context)
+    end
+
+    private def handle_public_message(client : Client, msg : String)
+      incoming = IncomingMessage.from_json(msg)
+
+      case incoming.action
+      when "subscribe_public_lobbies"
+        return send_error(client, "unauthorized", "Realtime lobby auth is not configured.") unless @bootstrap_verifier.configured?
+        return send_error(client, "invalid_token", "Missing or invalid websocket token.") unless payload = verified_payload(incoming.payload, client)
+
+        client.player_id = payload.player_id
+        @lobby_manager.subscribe_public_lobbies(client)
+      when "create_lobby"
+        return send_error(client, "unauthorized", "Realtime lobby auth is not configured.") unless @bootstrap_verifier.configured?
+        return send_error(client, "invalid_token", "Missing or invalid websocket token.") unless payload = verified_payload(incoming.payload, client)
+
+        client.player_id = payload.player_id
+        lobby = @lobby_manager.create_lobby(payload.player_id, payload.name)
+        client.send_json(
+          {
+            type: "create_lobby_success",
+            lobby: {
+              shortCode: lobby.id,
+              isPublic: lobby.is_public,
+            },
+          }.to_json
+        )
+      when "unsubscribe_public_lobbies"
+        @lobby_manager.remove_public_client(client)
+      else
+        send_error(client, "unknown_action", "Unknown public lobby action.")
+      end
+    rescue ex : JSON::ParseException
+      send_error(client, "invalid_json", "Invalid websocket payload.")
+    rescue ex
+      puts "Error handling public ws message: #{ex.message}\n#{ex.backtrace.join("\n")}"
+      send_error(client, "internal_error", "Unexpected websocket error.")
+    end
+
+    private def handle_lobby_message(client : Client, msg : String)
       begin
         incoming = IncomingMessage.from_json(msg)
         lid = client.lobby_id
@@ -53,15 +107,10 @@ module Settler::Engine::Transport::WebSocket
 
         case incoming.action
         when "join"
-          if payload = incoming.payload
-            player_id = payload["player_id"]?.try(&.as_s?)
-            name = payload["name"]?.try(&.as_s?)
-            host_id = payload["host_id"]?.try(&.as_s?)
+          return send_error(client, "unauthorized", "Realtime lobby auth is not configured.") unless @bootstrap_verifier.configured?
+          return send_error(client, "invalid_token", "Missing or invalid websocket token.") unless payload = verified_payload(incoming.payload, client, lid)
 
-            if player_id && name
-              @lobby_manager.handle_join(lid, player_id, name, client, host_id)
-            end
-          end
+          @lobby_manager.handle_join(lid, payload.player_id, payload.name, client)
         when "leave"
           @lobby_manager.remove_client(client)
           client.socket.close
@@ -75,7 +124,7 @@ module Settler::Engine::Transport::WebSocket
               if lobby.host_id == client.player_id
                 @lobby_manager.kick_player(lid, target_player_id)
               else
-                puts "Kick rejected: #{client.player_id} is not the host of #{lid}"
+                send_error(client, "forbidden", "Only the host can remove players.")
               end
             end
           end
@@ -87,7 +136,19 @@ module Settler::Engine::Transport::WebSocket
               if lobby.host_id == client.player_id
                 @lobby_manager.update_settings(lid, settings)
               else
-                puts "Settings update rejected: #{client.player_id} is not the host of #{lid}"
+                send_error(client, "forbidden", "Only the host can update lobby settings.")
+              end
+            end
+          end
+        when "visibility_update"
+          if payload = incoming.payload
+            is_public = payload["is_public"]?.try(&.as_bool?)
+            unless is_public.nil?
+              lobby = @lobby_manager.get_or_create_lobby(lid)
+              if lobby.host_id == client.player_id
+                @lobby_manager.update_visibility(lid, is_public)
+              else
+                send_error(client, "forbidden", "Only the host can update lobby visibility.")
               end
             end
           end
@@ -101,7 +162,7 @@ module Settler::Engine::Transport::WebSocket
           @lobby_manager.send_chat_message(lid, player_id, message) if message
         when "ready"
           if payload = incoming.payload
-            player_id = payload["player_id"]?.try(&.as_s?)
+            player_id = client.player_id
             ready_state = payload["ready"]?.try(&.as_bool?)
 
             if player_id && !ready_state.nil?
@@ -109,12 +170,13 @@ module Settler::Engine::Transport::WebSocket
             end
           end
         else
-          puts "Unknown action: #{incoming.action}"
+          send_error(client, "unknown_action", "Unknown lobby action.")
         end
       rescue ex : JSON::ParseException
-        puts "JSON parse error from WS client: #{ex.message}"
+        send_error(client, "invalid_json", "Invalid websocket payload.")
       rescue ex
         puts "Error handling ws message: #{ex.message}\n#{ex.backtrace.join("\n")}"
+        send_error(client, "internal_error", "Unexpected websocket error.")
       end
     end
 
@@ -125,7 +187,7 @@ module Settler::Engine::Transport::WebSocket
         if lobby.host_id == client.player_id
           @lobby_manager.start_game(lobby_id)
         else
-          puts "Start game rejected: #{client.player_id} is not the host of #{lobby_id}"
+          send_error(client, "forbidden", "Only the host can start the game.")
         end
       when "place_settlement"
         return unless payload = incoming.payload
@@ -247,6 +309,21 @@ module Settler::Engine::Transport::WebSocket
       end
     end
 
+    private def verified_payload(payload : JSON::Any?, client : Client, expected_lobby_id : String? = nil) : BootstrapTokenPayload?
+      token = payload.try(&.as_h?).try { |hash| hash["token"]?.try(&.as_s?) }
+      return nil unless token
+
+      verified_payload = @bootstrap_verifier.verify(token, expected_lobby_id)
+      return nil unless verified_payload
+
+      client.player_id = verified_payload.player_id
+      verified_payload
+    end
+
+    private def send_error(client : Client, code : String, message : String) : Nil
+      client.send_json({type: "error", code: code, message: message}.to_json)
+    end
+
     private def route_game_action(client : Client, lobby_id : String, payload : JSON::Any)
       player_id = client.player_id
       return unless player_id
@@ -318,7 +395,7 @@ module Settler::Engine::Transport::WebSocket
       when "end_turn"
         @lobby_manager.end_turn(lobby_id, player_id)
       else
-        puts "Unknown game action: #{action}"
+        send_error(client, "unknown_action", "Unknown game action.")
       end
     end
 

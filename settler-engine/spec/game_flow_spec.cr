@@ -23,9 +23,47 @@ class RecordingGameEventStore < Settler::Engine::Infrastructure::Persistence::Ga
     message: String?)
   getter snapshots = [] of NamedTuple(lobby_code: String, snapshot_json: String, snapshot_version: Int32)
   getter latest_snapshots = Hash(String, Settler::Engine::Infrastructure::Persistence::PersistedGameSnapshot).new
+  getter waiting_lobbies = Hash(String, Settler::Engine::Infrastructure::Persistence::PersistedLobby).new
+
+  def create_lobby(host_player_id : String, is_public : Bool, settings_json : String) : Settler::Engine::Infrastructure::Persistence::PersistedLobby
+    lobby = Settler::Engine::Infrastructure::Persistence::PersistedLobby.new(
+      short_code: "REC001",
+      host_player_id: host_player_id,
+      status: "waiting",
+      is_public: is_public,
+      settings_json: settings_json,
+      created_at: Time.utc,
+      participants: [] of Settler::Engine::Infrastructure::Persistence::PersistedLobbyParticipant
+    )
+    @waiting_lobbies[lobby.short_code] = lobby
+    lobby
+  end
+
+  def load_waiting_lobby(lobby_code : String) : Settler::Engine::Infrastructure::Persistence::PersistedLobby?
+    @waiting_lobbies[lobby_code]?
+  end
+
+  def load_public_waiting_lobbies : Array(Settler::Engine::Infrastructure::Persistence::PersistedLobby)
+    @waiting_lobbies.values.select(&.is_public)
+  end
+
+  def add_participant(lobby_code : String, player_id : String, ready : Bool = false) : Nil
+  end
+
+  def remove_participant(lobby_code : String, player_id : String) : Nil
+  end
+
+  def update_participant_ready(lobby_code : String, player_id : String, ready : Bool) : Nil
+  end
+
+  def update_lobby_visibility(lobby_code : String, is_public : Bool) : Nil
+  end
 
   def update_game_settings(lobby_code : String, settings_json : String) : Nil
     @settings_updates << {lobby_code: lobby_code, settings_json: settings_json}
+  end
+
+  def mark_game_started(lobby_code : String) : Nil
   end
 
   def append(
@@ -72,7 +110,7 @@ describe Settler::Engine::Application::LobbyManager do
     second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
     second_client.lobby_id = "CHAT01"
 
-    manager.handle_join("CHAT01", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("CHAT01", "player-1", "Alice", first_client)
     manager.handle_join("CHAT01", "player-2", "Bob", second_client)
 
     manager.send_chat_message("CHAT01", "player-1", "  hello table  ").should be_true
@@ -94,7 +132,7 @@ describe Settler::Engine::Application::LobbyManager do
     client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
     client.lobby_id = "CHAT02"
 
-    manager.handle_join("CHAT02", "player-1", "Alice", client, "player-1")
+    manager.handle_join("CHAT02", "player-1", "Alice", client)
 
     manager.send_chat_message("CHAT02", "player-1", "   ").should be_false
     manager.send_chat_message("CHAT02", "player-1", "a" * 501).should be_false
@@ -111,7 +149,7 @@ describe Settler::Engine::Application::LobbyManager do
     second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
     second_client.lobby_id = "CHAT03"
 
-    manager.handle_join("CHAT03", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("CHAT03", "player-1", "Alice", first_client)
     manager.handle_join("CHAT03", "player-2", "Bob", second_client)
 
     manager.send_chat_message("CHAT03", "player-1", "pregame").should be_true
@@ -130,7 +168,7 @@ describe Settler::Engine::Application::LobbyManager do
     second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
     second_client.lobby_id = "TIME01"
 
-    manager.handle_join("TIME01", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("TIME01", "player-1", "Alice", first_client)
     manager.handle_join("TIME01", "player-2", "Bob", second_client)
 
     lobby = manager.get_or_create_lobby("TIME01")
@@ -175,7 +213,7 @@ describe Settler::Engine::Application::LobbyManager do
     third_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
     third_client.lobby_id = "TIME02"
 
-    manager.handle_join("TIME02", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("TIME02", "player-1", "Alice", first_client)
     manager.handle_join("TIME02", "player-2", "Bob", second_client)
     manager.handle_join("TIME02", "player-3", "Cara", third_client)
     manager.get_or_create_lobby("TIME02").settings = {
@@ -218,7 +256,7 @@ describe Settler::Engine::Application::LobbyManager do
     second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
     second_client.lobby_id = "TIME07"
 
-    manager.handle_join("TIME07", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("TIME07", "player-1", "Alice", first_client)
     manager.handle_join("TIME07", "player-2", "Bob", second_client)
     manager.get_or_create_lobby("TIME07").settings = {
       "turnTimeSeconds"  => JSON::Any.new(30),
@@ -340,7 +378,7 @@ describe Settler::Engine::Application::LobbyManager do
     second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
     second_client.lobby_id = "DEF456"
 
-    manager.handle_join("DEF456", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("DEF456", "player-1", "Alice", first_client)
     manager.handle_join("DEF456", "player-2", "Bob", second_client)
 
     manager.start_game("DEF456")
@@ -410,7 +448,7 @@ describe Settler::Engine::Application::LobbyManager do
     second_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
     second_client.lobby_id = "GHI789"
 
-    manager.handle_join("GHI789", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("GHI789", "player-1", "Alice", first_client)
     manager.handle_join("GHI789", "player-2", "Bob", second_client)
 
     manager.start_game("GHI789")
@@ -451,7 +489,7 @@ describe Settler::Engine::Application::LobbyManager do
     third_client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
     third_client.lobby_id = "TRADE123"
 
-    manager.handle_join("TRADE123", "player-1", "Alice", first_client, "player-1")
+    manager.handle_join("TRADE123", "player-1", "Alice", first_client)
     manager.handle_join("TRADE123", "player-2", "Bob", second_client)
     manager.handle_join("TRADE123", "player-3", "Cara", third_client)
 

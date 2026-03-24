@@ -1,4 +1,5 @@
 require "json"
+require "time"
 require "../player/player"
 
 module Settler::Engine::Domain
@@ -8,7 +9,9 @@ module Settler::Engine::Domain
     getter id : String
     getter players : Array(Player) = [] of Player
     property host_id : String? = nil
+    property is_public : Bool = false
     property settings : Hash(String, JSON::Any) = Hash(String, JSON::Any).new
+    property created_at : Time = Time.utc
 
     def initialize(@id : String)
     end

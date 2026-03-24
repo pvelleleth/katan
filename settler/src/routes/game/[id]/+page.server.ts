@@ -14,55 +14,66 @@ export const load: PageServerLoad = async (event) => {
 	});
 
 	if (!session?.user) {
-		// They will be redirected by the client-side logic, or we could redirect here
-		return { lobbyId, joinSuccess: false };
+		return { lobbyId, joinSuccess: false, needsSessionRefresh: true };
 	}
 
 	try {
 		// 2. Find the game
 		const activeGame = await db.query.game.findFirst({
-			where: eq(game.shortCode, lobbyId)
+			where: eq(game.shortCode, lobbyId),
+			with: {
+				participants: {
+					columns: {
+						playerId: true
+					}
+				}
+			}
 		});
 
 		if (!activeGame) {
 			throw error(404, 'Lobby not found');
 		}
 
-		// 3. Find or create player profile
-		let activePlayer = await db.query.player.findFirst({
+		// 3. Find existing player profile when available. The websocket bootstrap route
+		// is responsible for creating it if this is the user's first lobby.
+		const activePlayer = await db.query.player.findFirst({
 			where: eq(player.userId, session.user.id)
 		});
 
-		if (!activePlayer) {
-			const [newPlayer] = await db.insert(player).values({ userId: session.user.id }).returning();
-			activePlayer = newPlayer;
-		}
-
 		// 4. Check if player is already in the game participant list
-		const existingParticipant = await db.query.gameParticipant.findFirst({
-			where: and(
-				eq(gameParticipant.gameId, activeGame.id),
-				eq(gameParticipant.playerId, activePlayer.id)
-			)
-		});
+		const existingParticipant = activePlayer
+			? await db.query.gameParticipant.findFirst({
+					where: and(
+						eq(gameParticipant.gameId, activeGame.id),
+						eq(gameParticipant.playerId, activePlayer.id)
+					)
+				})
+			: null;
 
-		// 5. If not, join them to the game
+		// 5. Reject only when the lobby is already full and the viewer is not yet in it.
 		if (!existingParticipant) {
-			// Find how many players are in the game to assign a different color maybe?
-			// Keeping it simple and assigning a default for now.
-			await db.insert(gameParticipant).values({
-				gameId: activeGame.id,
-				playerId: activePlayer.id,
-				isReady: false,
-				color: 'ocean' // fallback color
-			});
+			const isLobbyFull = activeGame.participants.length >= activeGame.settings.maxPlayers;
+
+			if (isLobbyFull) {
+				return {
+					lobbyId,
+					hostId: activeGame.hostPlayerId,
+					settings: activeGame.settings,
+					status: activeGame.status,
+					isPublic: activeGame.isPublic,
+					joinSuccess: false,
+					joinError: 'This lobby is full.'
+				};
+			}
 		}
 
 		return {
 			lobbyId,
-			playerId: activePlayer.id,
 			hostId: activeGame.hostPlayerId,
-			settings: activeGame.settings
+			settings: activeGame.settings,
+			status: activeGame.status,
+			isPublic: activeGame.isPublic,
+			joinSuccess: true
 		};
 	} catch (e) {
 		console.error('Error joining lobby:', e);

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
 	import { authClient } from '$lib/auth-client';
@@ -12,6 +11,8 @@
 	let user: Record<string, any> | null = null;
 	let loading = true;
 	let copied = false;
+	let currentPlayerId = '';
+	let joinError = data.joinError ?? '';
 
 	type ColorNames = 'brick' | 'ocean' | 'wheat' | 'purple';
 
@@ -38,6 +39,9 @@
 	let settings: GameSettings = { ...defaultSettings };
 	let settingsSaved = false;
 	let saveTimeout: ReturnType<typeof setTimeout>;
+	let isPublic = data.isPublic ?? false;
+	let visibilitySaving = false;
+	let visibilityError = '';
 
 	let players: {
 		id: string;
@@ -103,13 +107,18 @@
 			if (sessionData?.user) {
 				user = sessionData.user;
 				// If they have a token on the client but the server missed it (or we just logged them in)
-				if (data.joinSuccess === false) {
+				if (data.needsSessionRefresh) {
 					await invalidateAll();
+				} else if (data.joinSuccess === false) {
+					isConnecting = false;
 				} else {
-					connectWebSocket(
-						data.playerId || user!.id,
-						user!.name || (user!.isAnonymous ? 'Guest Player' : 'Player')
-					);
+					try {
+						await connectWebSocket();
+					} catch (error) {
+						console.error('Failed to connect to lobby websocket', error);
+						isConnecting = false;
+						joinError = 'Unable to join this lobby.';
+					}
 				}
 			} else {
 				// Try anonymous sign in if no valid session exists
@@ -140,18 +149,26 @@
 		settings = { ...defaultSettings, ...data.settings };
 	}
 
-	// Reactive statement: if the loader successfully assigned a playerId and we have a user but NO websocket, connect!
-	$: if (data.playerId && user && !ws) {
-		connectWebSocket(data.playerId, user.name || (user.isAnonymous ? 'Guest Player' : 'Player'));
-	}
-
 	onDestroy(() => {
 		if (ws) {
 			ws.close();
 		}
 	});
 
-	function connectWebSocket(playerId: string, name: string) {
+	async function fetchLobbyBootstrap() {
+		const res = await fetch(`/api/ws-bootstrap?lobbyId=${lobbyId}`);
+		if (!res.ok) {
+			throw new Error('Unable to join lobby.');
+		}
+
+		const bootstrap = await res.json();
+		currentPlayerId = bootstrap.playerId;
+		return bootstrap as { token: string; playerId: string; name: string; expiresAt: number };
+	}
+
+	async function connectWebSocket() {
+		const bootstrap = await fetchLobbyBootstrap();
+
 		// Connect to Crystal WebSocket Server
 		ws = new WebSocket(`${PUBLIC_WS_URL}/ws/lobby/${lobbyId}`);
 
@@ -160,7 +177,9 @@
 			ws?.send(
 				JSON.stringify({
 					action: 'join',
-					payload: { player_id: playerId, name: name, host_id: data.hostId }
+					payload: {
+						token: bootstrap.token
+					}
 				})
 			);
 		};
@@ -170,9 +189,13 @@
 
 			if (msg.type === 'lobby_update') {
 				isConnecting = false;
+				joinError = '';
 				const updatedPlayers = msg.lobby.players;
 				if (msg.lobby.settings) {
 					settings = { ...defaultSettings, ...msg.lobby.settings };
+				}
+				if (typeof msg.lobby.is_public === 'boolean') {
+					isPublic = msg.lobby.is_public;
 				}
 
 				// Keep the color assignment stable by looking at the DB or doing it deterministically
@@ -188,6 +211,7 @@
 				}));
 			} else if (msg.type === 'game_started' || msg.type === 'game_update') {
 				isConnecting = false;
+				joinError = '';
 				gameStarted = true;
 				gameState = msg.game_state;
 			} else if (msg.type === 'game_log') {
@@ -214,6 +238,13 @@
 				// This client was kicked by the host
 				ws?.close();
 				goto('/game?kicked=1');
+			} else if (msg.type === 'error') {
+				isConnecting = false;
+				if (players.length === 0 && !gameStarted) {
+					joinError = msg.message || 'Unable to join this lobby.';
+				} else {
+					visibilityError = msg.message || 'Unable to update lobby visibility.';
+				}
 			}
 		};
 
@@ -230,21 +261,21 @@
 	}
 
 	function toggleReady() {
-		if (!ws || !data.playerId) return;
+		if (!ws || !currentPlayerId) return;
 
-		const myPlayer = players.find((p) => p.id === data.playerId);
+		const myPlayer = players.find((p) => p.id === currentPlayerId);
 		if (myPlayer) {
 			ws.send(
 				JSON.stringify({
 					action: 'ready',
-					payload: { player_id: data.playerId, ready: !myPlayer.isReady }
+					payload: { player_id: currentPlayerId, ready: !myPlayer.isReady }
 				})
 			);
 		}
 	}
 
 	function startGame() {
-		if (!ws || data.playerId !== data.hostId) return;
+		if (!ws || currentPlayerId !== data.hostId) return;
 		ws.send(
 			JSON.stringify({
 				action: 'start_game'
@@ -253,7 +284,7 @@
 	}
 
 	function kickPlayer(targetId: string) {
-		if (!ws || !data.playerId) return;
+		if (!ws || !currentPlayerId) return;
 		ws.send(
 			JSON.stringify({
 				action: 'kick',
@@ -263,7 +294,7 @@
 	}
 
 	function saveSettings() {
-		if (!ws || data.playerId !== data.hostId) return;
+		if (!ws || currentPlayerId !== data.hostId) return;
 		ws.send(
 			JSON.stringify({
 				action: 'settings_update',
@@ -279,8 +310,33 @@
 		}, 2000);
 	}
 
+	async function setPublicLobby(next: boolean) {
+		if (!canEditVisibility || visibilitySaving || next === isPublic) return;
+
+		visibilitySaving = true;
+		visibilityError = '';
+
+		try {
+			ws?.send(
+				JSON.stringify({
+					action: 'visibility_update',
+					payload: { is_public: next }
+				})
+			);
+		} catch (e) {
+			console.error('Failed to update lobby visibility', e);
+			visibilityError = 'Unable to update lobby visibility.';
+		} finally {
+			visibilitySaving = false;
+		}
+	}
+
+	function togglePublicLobby() {
+		setPublicLobby(!isPublic);
+	}
+
 	function sendGameAction(action: string, payload: any = {}) {
-		if (!ws || !data.playerId) return;
+		if (!ws || !currentPlayerId) return;
 		ws.send(
 			JSON.stringify({
 				action,
@@ -290,7 +346,7 @@
 	}
 
 	function sendChatMessage(message: string) {
-		if (!ws || !data.playerId) return;
+		if (!ws || !currentPlayerId) return;
 		ws.send(
 			JSON.stringify({
 				action: 'send_chat_message',
@@ -357,6 +413,7 @@
 	$: offlinePlayers = players.filter((player) => !player.isConnected);
 	$: readyConnectedPlayers = players.filter((player) => player.isConnected && player.isReady);
 	$: canStartGame = readyConnectedPlayers.length >= 3;
+	$: canEditVisibility = currentPlayerId === data.hostId && data.status === 'waiting' && !gameStarted;
 	$: lobbyStatus =
 		offlinePlayers.length > 0
 			? `${offlinePlayers.length} player${offlinePlayers.length === 1 ? '' : 's'} disconnected`
@@ -365,7 +422,7 @@
 		tradeComposerOpen &&
 		(!gameStarted ||
 			!gameState ||
-			gameState.turn.current_player_id !== (data.playerId || '') ||
+			gameState.turn.current_player_id !== currentPlayerId ||
 			gameState.turn.phase !== 'Main' ||
 			gameState.turn.pending_player_trade)
 	) {
@@ -412,11 +469,45 @@
 				<p class="font-bold text-wood-dark">Connecting to game...</p>
 			</div>
 		</div>
+	{:else if data.joinSuccess === false && data.joinError}
+		<div class="flex flex-1 items-center justify-center p-6">
+			<div
+				class="w-full max-w-lg rounded-[2rem] border-2 border-brick/10 bg-white/80 p-8 text-center shadow-xl glass-panel"
+			>
+				<h1 class="text-3xl font-black text-wood-dark">Lobby Unavailable</h1>
+				<p class="mt-3 text-base font-semibold text-wood-dark/80">{data.joinError}</p>
+				<div class="mt-6 flex justify-center">
+					<button
+						on:click={() => goto('/game')}
+						class="rounded-2xl bg-ocean px-6 py-3 text-lg font-bold text-white shadow-md transition-all hover:scale-[1.02] hover:bg-[#1880a8]"
+					>
+						Browse Lobbies
+					</button>
+				</div>
+			</div>
+		</div>
+	{:else if joinError}
+		<div class="flex flex-1 items-center justify-center p-6">
+			<div
+				class="w-full max-w-lg rounded-[2rem] border-2 border-brick/10 bg-white/80 p-8 text-center shadow-xl glass-panel"
+			>
+				<h1 class="text-3xl font-black text-wood-dark">Lobby Unavailable</h1>
+				<p class="mt-3 text-base font-semibold text-wood-dark/80">{joinError}</p>
+				<div class="mt-6 flex justify-center">
+					<button
+						on:click={() => goto('/game')}
+						class="rounded-2xl bg-ocean px-6 py-3 text-lg font-bold text-white shadow-md transition-all hover:scale-[1.02] hover:bg-[#1880a8]"
+					>
+						Browse Lobbies
+					</button>
+				</div>
+			</div>
+		</div>
 	{:else if gameStarted && gameState}
 		<GameView
 			{gameState}
 			{players}
-			playerId={data.playerId || ''}
+			playerId={currentPlayerId}
 			{sendGameAction}
 			{sendChatMessage}
 			{gameLog}
@@ -451,9 +542,18 @@
 							class="flex flex-col items-center justify-between gap-6 rounded-3xl border-2 border-wood/10 p-8 shadow-xl glass-panel sm:flex-row"
 						>
 							<div>
-								<h1 class="mb-1 text-xl font-bold tracking-widest text-wood-light/80 uppercase">
-									Lobby Code
-								</h1>
+								<div class="mb-2 flex flex-wrap items-center gap-2">
+									<h1 class="text-xl font-bold tracking-widest text-wood-light/80 uppercase">
+										Lobby Code
+									</h1>
+									<span
+										class="rounded-full px-3 py-1 text-[0.65rem] font-black tracking-[0.2em] uppercase {isPublic
+											? 'bg-forest/10 text-forest'
+											: 'bg-wood/10 text-wood-light'}"
+									>
+										{isPublic ? 'Listed in browse' : 'Invite only'}
+									</span>
+								</div>
 								<div
 									class="font-mono text-4xl font-black tracking-[0.2em] text-wood-dark drop-shadow-sm lg:text-5xl"
 								>
@@ -533,7 +633,7 @@
 												class="flex items-center gap-2 truncate text-lg font-bold text-wood-dark"
 											>
 												{player.name}
-												{#if player.id === data.playerId}
+												{#if player.id === currentPlayerId}
 													<span
 														class="translate-y-[-1px] rounded-full bg-ocean/80 px-2 py-0.5 text-[0.65rem] font-black tracking-wider text-white uppercase"
 														>You</span
@@ -562,7 +662,7 @@
 										</div>
 
 										<!-- Kick button: only visible for the host, on other players' cards -->
-										{#if data.playerId === data.hostId && player.id !== data.playerId}
+										{#if currentPlayerId === data.hostId && player.id !== currentPlayerId}
 											<button
 												on:click={() => kickPlayer(player.id)}
 												title="Kick player"
@@ -599,8 +699,8 @@
 
 						<!-- Action Area -->
 						<div class="flex justify-end">
-							{#if data.playerId && players.find((p) => p.id === data.playerId)}
-								{@const me = players.find((p) => p.id === data.playerId)}
+							{#if currentPlayerId && players.find((p) => p.id === currentPlayerId)}
+								{@const me = players.find((p) => p.id === currentPlayerId)}
 								{#if me && !me.isReady}
 									<button
 										on:click={toggleReady}
@@ -620,7 +720,7 @@
 											/></svg
 										>
 									</button>
-								{:else if data.playerId === data.hostId}
+								{:else if currentPlayerId === data.hostId}
 									<button
 										on:click={startGame}
 										class="group/start flex w-full items-center justify-center gap-2 rounded-2xl bg-forest px-8 py-3.5 text-xl font-bold text-white shadow-xl shadow-forest/20 transition-all hover:scale-105 hover:bg-forest/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 sm:w-auto"
@@ -654,8 +754,8 @@
 
 					<!-- Game Settings (all players can view, host can edit) -->
 					<aside>
-						{#if data.playerId}
-							{@const isHost = data.playerId === data.hostId}
+						{#if currentPlayerId}
+							{@const isHost = currentPlayerId === data.hostId}
 							<div class="sticky top-[112px] flex flex-col gap-6">
 								<div class="rounded-3xl border-2 border-wood/10 p-6 shadow-xl glass-panel">
 									<h2 class="mb-5 text-xl font-black text-wood-dark">Game Settings</h2>
@@ -723,6 +823,61 @@
 												disabled={!isHost}
 												class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark focus:border-ocean/50 focus:ring-2 focus:ring-ocean/20 focus:outline-none disabled:cursor-not-allowed disabled:bg-wood/5 disabled:opacity-70"
 											/>
+										</div>
+										<div class="border-t border-wood/10 pt-5">
+											<p id="lobby-visibility-heading" class="text-sm font-semibold text-wood-dark">
+												Who can join?
+											</p>
+											<p
+												id="lobby-visibility-help"
+												class="mt-1 text-xs font-medium text-wood-light"
+											>
+												{isPublic
+													? 'Shown on the browse page so anyone can discover and join.'
+													: 'Hidden from browse. Only people you share the link with can join.'}
+											</p>
+											<div
+												class="mt-4 flex items-center justify-center gap-3 sm:justify-start"
+												role="group"
+												aria-labelledby="lobby-visibility-heading"
+											>
+												<span
+													class="w-14 text-right text-sm font-bold tracking-wide text-wood-dark uppercase transition-opacity {!isPublic
+														? 'opacity-100'
+														: 'opacity-40'}"
+												>
+													Private
+												</span>
+												<button
+													type="button"
+													role="switch"
+													aria-checked={isPublic}
+													aria-busy={visibilitySaving}
+													aria-labelledby="lobby-visibility-heading"
+													aria-describedby="lobby-visibility-help"
+													disabled={!canEditVisibility || visibilitySaving}
+													on:click={togglePublicLobby}
+													class="relative h-8 w-[3.25rem] shrink-0 rounded-full border-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ocean/40 focus-visible:ring-offset-2 focus-visible:ring-offset-parchment disabled:cursor-not-allowed disabled:opacity-50 {isPublic
+														? 'border-forest/40 bg-forest'
+														: 'border-wood/25 bg-wood/15'}"
+												>
+													<span
+														class="pointer-events-none absolute top-1/2 left-1 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow-md transition-transform duration-200 ease-out {isPublic
+															? 'translate-x-[1.35rem]'
+															: 'translate-x-0.5'}"
+													></span>
+												</button>
+												<span
+													class="w-14 text-left text-sm font-bold tracking-wide text-wood-dark uppercase transition-opacity {isPublic
+														? 'text-forest opacity-100'
+														: 'opacity-40'}"
+												>
+													Public
+												</span>
+											</div>
+											{#if visibilityError}
+												<p class="mt-3 text-sm font-semibold text-brick">{visibilityError}</p>
+											{/if}
 										</div>
 										<div class="flex flex-col gap-3 pt-2">
 											<label
@@ -800,7 +955,7 @@
 
 								<ChatPanel
 									messages={chatMessages}
-									playerId={data.playerId || ''}
+									playerId={currentPlayerId}
 									onSend={sendChatMessage}
 									title="Lobby Chat"
 									emptyMessage="Chat with the lobby before the game starts."
