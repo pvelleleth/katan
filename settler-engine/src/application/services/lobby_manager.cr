@@ -87,6 +87,10 @@ module Settler::Engine::Application
         player.name = player_name
         player.ready = false
         player.connected = false
+        player.disconnected_at = Time.utc
+        # Host is not connected yet (they navigate to the lobby page next).
+        # Evict the lobby if they never show up.
+        schedule_disconnect_cleanup(lobby.id, player_id, player.disconnect_version)
       end
 
       @lobbies[lobby.id] = lobby
@@ -240,6 +244,11 @@ module Settler::Engine::Application
     def update_visibility(lobby_id : String, is_public : Bool)
       previous_summary = current_public_lobby_summary_for(lobby_id)
       lobby = get_or_create_lobby(lobby_id)
+
+      if @games[lobby_id]?
+        raise "Cannot change visibility after the game has started"
+      end
+
       lobby.is_public = is_public
       @game_event_store.update_lobby_visibility(lobby_id, is_public)
       broadcast_lobby_state(lobby_id)
@@ -461,7 +470,8 @@ module Settler::Engine::Application
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       previous_player_id = game_state.turn.current_player_id
       previous_phase = game_state.turn.phase
-      event = PlayerTradeProposed.new(next_version(game_state), PlayerId.new(player_id), offered, requested)
+      trade_id = game_state.allocate_next_player_trade_id!
+      event = PlayerTradeProposed.new(next_version(game_state), trade_id, PlayerId.new(player_id), offered, requested)
 
       game_state.apply!(event)
       sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
@@ -479,13 +489,13 @@ module Settler::Engine::Application
       puts "Failed to propose player trade for #{lobby_id}: #{ex.message}"
     end
 
-    def accept_player_trade(lobby_id : String, player_id : String)
+    def accept_player_trade(lobby_id : String, player_id : String, trade_id : Int32)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
-      pending_trade = game_state.pending_player_trade || raise "no pending player trade"
+      pending_trade = game_state.pending_player_trade(trade_id) || raise "no pending player trade"
       previous_player_id = game_state.turn.current_player_id
       previous_phase = game_state.turn.phase
 
-      accepted_event = PlayerTradeAccepted.new(next_version(game_state), PlayerId.new(player_id), pending_trade.player_id)
+      accepted_event = PlayerTradeAccepted.new(next_version(game_state), trade_id, PlayerId.new(player_id), pending_trade.player_id)
       game_state.apply!(accepted_event)
       sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, false)
       actor_name = game_state.player!(accepted_event.player_id).name
@@ -503,12 +513,12 @@ module Settler::Engine::Application
       puts "Failed to accept player trade for #{lobby_id}: #{ex.message}"
     end
 
-    def reject_player_trade(lobby_id : String, player_id : String)
+    def reject_player_trade(lobby_id : String, player_id : String, trade_id : Int32)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
-      pending_trade = game_state.pending_player_trade || raise "no pending player trade"
+      pending_trade = game_state.pending_player_trade(trade_id) || raise "no pending player trade"
       previous_player_id = game_state.turn.current_player_id
       previous_phase = game_state.turn.phase
-      event = PlayerTradeRejected.new(next_version(game_state), PlayerId.new(player_id), pending_trade.player_id)
+      event = PlayerTradeRejected.new(next_version(game_state), trade_id, PlayerId.new(player_id), pending_trade.player_id)
 
       game_state.apply!(event)
       sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, false)
@@ -527,11 +537,11 @@ module Settler::Engine::Application
       puts "Failed to reject player trade for #{lobby_id}: #{ex.message}"
     end
 
-    def cancel_player_trade(lobby_id : String, player_id : String, grant_timer_bonus : Bool = false)
+    def cancel_player_trade(lobby_id : String, player_id : String, trade_id : Int32, grant_timer_bonus : Bool = false)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
       previous_player_id = game_state.turn.current_player_id
       previous_phase = game_state.turn.phase
-      event = PlayerTradeCancelled.new(next_version(game_state), PlayerId.new(player_id))
+      event = PlayerTradeCancelled.new(next_version(game_state), trade_id, PlayerId.new(player_id))
 
       game_state.apply!(event)
       sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
@@ -549,12 +559,12 @@ module Settler::Engine::Application
       puts "Failed to cancel player trade for #{lobby_id}: #{ex.message}"
     end
 
-    def finalize_player_trade(lobby_id : String, player_id : String, partner_player_id : String, grant_timer_bonus : Bool = true)
+    def finalize_player_trade(lobby_id : String, player_id : String, trade_id : Int32, partner_player_id : String, grant_timer_bonus : Bool = true)
       game_state = @games[lobby_id]? || raise "no active game for lobby #{lobby_id}"
-      pending_trade = game_state.pending_player_trade || raise "no pending player trade"
+      pending_trade = game_state.pending_player_trade(trade_id) || raise "no pending player trade"
       previous_player_id = game_state.turn.current_player_id
       previous_phase = game_state.turn.phase
-      event = PlayerTradeCompleted.new(next_version(game_state), PlayerId.new(player_id), PlayerId.new(partner_player_id), pending_trade.offered, pending_trade.requested)
+      event = PlayerTradeCompleted.new(next_version(game_state), trade_id, PlayerId.new(player_id), PlayerId.new(partner_player_id), pending_trade.offered, pending_trade.requested)
 
       game_state.apply!(event)
       sync_turn_timer_after_action!(lobby_id, game_state, previous_player_id, previous_phase, grant_timer_bonus)
@@ -749,6 +759,9 @@ module Settler::Engine::Application
     private def cleanup_lobby(lobby_id : String, lobby : Domain::Lobby)
       return unless lobby.players.empty?
 
+      # Persist abandonment so empty public lobbies do not reappear after restarts.
+      @game_event_store.abandon_waiting_lobby(lobby_id) unless @games[lobby_id]?
+
       @games.delete(lobby_id)
       @lobbies.delete(lobby_id)
       @clients.delete(lobby_id)
@@ -758,7 +771,14 @@ module Settler::Engine::Application
       return if @lobbies.has_key?(lobby_id)
 
       if persisted_lobby = @game_event_store.load_waiting_lobby(lobby_id)
-        @lobbies[lobby_id] = hydrate_waiting_lobby(persisted_lobby)
+        if persisted_lobby.participants.empty?
+          @game_event_store.abandon_waiting_lobby(lobby_id)
+          return
+        end
+
+        lobby = hydrate_waiting_lobby(persisted_lobby)
+        @lobbies[lobby_id] = lobby
+        schedule_cleanup_for_disconnected_players(lobby)
         return
       end
 
@@ -800,9 +820,23 @@ module Settler::Engine::Application
       lobby
     end
 
+    private def schedule_cleanup_for_disconnected_players(lobby : Domain::Lobby) : Nil
+      lobby.players.each do |player|
+        next if player.connected
+        schedule_disconnect_cleanup(lobby.id, player.id, player.disconnect_version)
+      end
+    end
+
     private def hydrate_public_lobbies_from_store : Nil
       @game_event_store.load_public_waiting_lobbies.each do |persisted_lobby|
-        @lobbies[persisted_lobby.short_code] = hydrate_waiting_lobby(persisted_lobby)
+        if persisted_lobby.participants.empty?
+          @game_event_store.abandon_waiting_lobby(persisted_lobby.short_code)
+          next
+        end
+
+        lobby = hydrate_waiting_lobby(persisted_lobby)
+        @lobbies[lobby.id] = lobby
+        schedule_cleanup_for_disconnected_players(lobby)
       end
     rescue ex
       puts "Failed to restore public lobbies from store: #{ex.message}"
@@ -848,7 +882,8 @@ module Settler::Engine::Application
         pending_robber_discards: hydrate_pending_discards(turn: snapshot["turn"]),
         robber_eligible_victim_ids: snapshot["turn"]["robber_eligible_victim_ids"].as_a.map { |player_id| PlayerId.new(player_id.as_s) },
         robber_return_phase: hydrate_turn_phase(snapshot["turn"]["robber_return_phase"]?),
-        pending_player_trade: hydrate_pending_trade(snapshot["turn"]["pending_player_trade"]?)
+        pending_player_trades: hydrate_pending_trades(snapshot["turn"]),
+        next_player_trade_id: hydrate_next_player_trade_id(snapshot["turn"])
       )
     end
 
@@ -999,6 +1034,29 @@ module Settler::Engine::Application
       end
     end
 
+    private def hydrate_pending_trades(turn : JSON::Any) : Array(PendingPlayerTrade)
+      if trades_json = turn["pending_player_trades"]?
+        return [] of PendingPlayerTrade if trades_json.raw.nil?
+
+        return trades_json.as_a.compact_map { |trade_json| hydrate_pending_trade(trade_json) }
+      end
+
+      # Backward-compatible hydration for snapshots that stored a single trade.
+      single = hydrate_pending_trade(turn["pending_player_trade"]?)
+      single ? [single] : [] of PendingPlayerTrade
+    end
+
+    private def hydrate_next_player_trade_id(turn : JSON::Any) : Int32
+      if next_id = turn["next_player_trade_id"]?.try(&.as_i?)
+        return next_id.to_i32
+      end
+
+      trades = hydrate_pending_trades(turn)
+      return 1 if trades.empty?
+
+      trades.map(&.id).max + 1
+    end
+
     private def hydrate_pending_trade(pending_trade_json : JSON::Any?) : PendingPlayerTrade?
       return nil unless pending_trade_json
       return nil if pending_trade_json.raw.nil?
@@ -1007,7 +1065,10 @@ module Settler::Engine::Application
         result[PlayerId.new(response_json["player_id"].as_s)] = parse_enum(PlayerTradeResponseStatus, response_json["status"].as_s)
       end
 
+      trade_id = pending_trade_json["id"]?.try(&.as_i?).try(&.to_i32) || 1
+
       PendingPlayerTrade.new(
+        trade_id,
         PlayerId.new(pending_trade_json["player_id"].as_s),
         hydrate_resource_pile(pending_trade_json["offered"]),
         hydrate_resource_pile(pending_trade_json["requested"]),
@@ -1039,6 +1100,7 @@ module Settler::Engine::Application
     private def public_lobby_summary(lobby : Domain::Lobby) : PublicLobbySummary?
       return nil unless lobby.is_public
       return nil if @games[lobby.id]?
+      return nil if lobby.players.empty?
       return nil if lobby.players.size >= max_players_for(lobby)
       return nil unless host_id = lobby.host_id
 
@@ -1168,7 +1230,10 @@ module Settler::Engine::Application
           timer_expires_at:          game_state.turn.timer_expires_at.try(&.to_rfc3339),
           timer_duration_seconds:    game_state.turn.timer_duration_seconds,
           robber_return_phase:       game_state.robber_return_phase.try(&.to_s),
-          pending_player_trade:      serialize_pending_player_trade(game_state.pending_player_trade, viewer_player_id),
+          pending_player_trades:     game_state.pending_player_trades.map { |trade|
+            serialize_pending_player_trade(trade, viewer_player_id)
+          },
+          next_player_trade_id:      game_state.next_player_trade_id,
           pending_robber_discards:   game_state.pending_robber_discards.map { |target_player_id, count|
             {
               player_id: target_player_id.value,
@@ -1326,6 +1391,7 @@ module Settler::Engine::Application
       when PlayerTradeProposed
         {
           version:   event.version,
+          trade_id:  event.trade_id,
           player_id: event.player_id.value,
           offered:   event.offered.to_json_payload,
           requested: event.requested.to_json_payload,
@@ -1333,23 +1399,27 @@ module Settler::Engine::Application
       when PlayerTradeAccepted
         {
           version:           event.version,
+          trade_id:          event.trade_id,
           player_id:         event.player_id.value,
           partner_player_id: event.partner_player_id.value,
         }
       when PlayerTradeRejected
         {
           version:           event.version,
+          trade_id:          event.trade_id,
           player_id:         event.player_id.value,
           partner_player_id: event.partner_player_id.value,
         }
       when PlayerTradeCancelled
         {
           version:   event.version,
+          trade_id:  event.trade_id,
           player_id: event.player_id.value,
         }
       when PlayerTradeCompleted
         {
           version:           event.version,
+          trade_id:          event.trade_id,
           player_id:         event.player_id.value,
           partner_player_id: event.partner_player_id.value,
           offered:           event.offered.to_json_payload,
@@ -1441,12 +1511,11 @@ module Settler::Engine::Application
       end
     end
 
-    private def serialize_pending_player_trade(pending_trade : PendingPlayerTrade?, viewer_player_id : String?)
-      return nil unless pending_trade
-
+    private def serialize_pending_player_trade(pending_trade : PendingPlayerTrade, viewer_player_id : String?)
       viewer_response = viewer_player_id ? pending_trade.response_for(PlayerId.new(viewer_player_id)).try(&.to_s) : nil
 
       {
+        id:        pending_trade.id,
         player_id: pending_trade.player_id.value,
         offered:   pending_trade.offered.to_json_payload,
         requested: pending_trade.requested.to_json_payload,

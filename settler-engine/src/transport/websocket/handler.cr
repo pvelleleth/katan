@@ -250,23 +250,30 @@ module Settler::Engine::Transport::WebSocket
         requested = parse_resource_pile(payload["requested"]?)
         @lobby_manager.propose_player_trade(lobby_id, player_id, offered, requested) if offered && requested
       when "accept_player_trade"
+        return unless payload = incoming.payload
         return unless player_id = client.player_id
 
-        @lobby_manager.accept_player_trade(lobby_id, player_id)
+        trade_id = payload["trade_id"]?.try(&.as_i?).try(&.to_i32)
+        @lobby_manager.accept_player_trade(lobby_id, player_id, trade_id) if trade_id
       when "reject_player_trade"
+        return unless payload = incoming.payload
         return unless player_id = client.player_id
 
-        @lobby_manager.reject_player_trade(lobby_id, player_id)
+        trade_id = payload["trade_id"]?.try(&.as_i?).try(&.to_i32)
+        @lobby_manager.reject_player_trade(lobby_id, player_id, trade_id) if trade_id
       when "cancel_player_trade"
+        return unless payload = incoming.payload
         return unless player_id = client.player_id
 
-        @lobby_manager.cancel_player_trade(lobby_id, player_id)
+        trade_id = payload["trade_id"]?.try(&.as_i?).try(&.to_i32)
+        @lobby_manager.cancel_player_trade(lobby_id, player_id, trade_id) if trade_id
       when "finalize_player_trade"
         return unless payload = incoming.payload
         return unless player_id = client.player_id
 
+        trade_id = payload["trade_id"]?.try(&.as_i?).try(&.to_i32)
         partner_player_id = payload["partner_player_id"]?.try(&.as_s?)
-        @lobby_manager.finalize_player_trade(lobby_id, player_id, partner_player_id) if partner_player_id
+        @lobby_manager.finalize_player_trade(lobby_id, player_id, trade_id, partner_player_id) if trade_id && partner_player_id
       when "trade_with_bank", "trade_with_harbor"
         return unless payload = incoming.payload
         return unless player_id = client.player_id
@@ -367,14 +374,18 @@ module Settler::Engine::Transport::WebSocket
         requested = parse_resource_pile(payload["requested"]?)
         @lobby_manager.propose_player_trade(lobby_id, player_id, offered, requested) if offered && requested
       when "accept_player_trade"
-        @lobby_manager.accept_player_trade(lobby_id, player_id)
+        trade_id = payload["trade_id"]?.try(&.as_i?).try(&.to_i32)
+        @lobby_manager.accept_player_trade(lobby_id, player_id, trade_id) if trade_id
       when "reject_player_trade"
-        @lobby_manager.reject_player_trade(lobby_id, player_id)
+        trade_id = payload["trade_id"]?.try(&.as_i?).try(&.to_i32)
+        @lobby_manager.reject_player_trade(lobby_id, player_id, trade_id) if trade_id
       when "cancel_player_trade"
-        @lobby_manager.cancel_player_trade(lobby_id, player_id)
+        trade_id = payload["trade_id"]?.try(&.as_i?).try(&.to_i32)
+        @lobby_manager.cancel_player_trade(lobby_id, player_id, trade_id) if trade_id
       when "finalize_player_trade"
+        trade_id = payload["trade_id"]?.try(&.as_i?).try(&.to_i32)
         partner_player_id = payload["partner_player_id"]?.try(&.as_s?)
-        @lobby_manager.finalize_player_trade(lobby_id, player_id, partner_player_id) if partner_player_id
+        @lobby_manager.finalize_player_trade(lobby_id, player_id, trade_id, partner_player_id) if trade_id && partner_player_id
       when "trade_with_bank", "trade_with_harbor"
         offered_resource_name = payload["offered_resource"]?.try(&.as_s?)
         requested_resource_name = payload["requested_resource"]?.try(&.as_s?)

@@ -67,10 +67,10 @@
 		offeredResource: ResourceKey,
 		requestedResource: ResourceKey
 	) => void;
-	export let onAcceptPlayerTrade: () => void;
-	export let onRejectPlayerTrade: () => void;
-	export let onCancelPlayerTrade: () => void;
-	export let onFinalizePlayerTrade: (partnerPlayerId: string) => void;
+	export let onAcceptPlayerTrade: (tradeId: number) => void;
+	export let onRejectPlayerTrade: (tradeId: number) => void;
+	export let onCancelPlayerTrade: (tradeId: number) => void;
+	export let onFinalizePlayerTrade: (tradeId: number, partnerPlayerId: string) => void;
 	export let onLeaveGame: () => void;
 
 	let tradeOffered = createEmptyResourcePile();

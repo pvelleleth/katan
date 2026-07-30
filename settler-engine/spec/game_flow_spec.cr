@@ -66,6 +66,10 @@ class RecordingGameEventStore < Settler::Engine::Infrastructure::Persistence::Ga
   def mark_game_started(lobby_code : String) : Nil
   end
 
+  def abandon_waiting_lobby(lobby_code : String) : Nil
+    @waiting_lobbies.delete(lobby_code)
+  end
+
   def append(
     lobby_code : String,
     event_type : String,
@@ -236,14 +240,15 @@ describe Settler::Engine::Application::LobbyManager do
     initial_duration = game_state.turn.timer_duration_seconds
 
     manager.propose_player_trade("TIME02", current_player_id, ResourcePile.new(1, 0, 0, 0, 0), ResourcePile.new(0, 1, 0, 0, 0))
+    trade_id = game_state.pending_player_trades.first.id
     game_state.turn.timer_expires_at.should eq(initial_expires_at)
     game_state.turn.timer_duration_seconds.should eq(initial_duration)
 
-    manager.accept_player_trade("TIME02", other_player_id)
+    manager.accept_player_trade("TIME02", other_player_id, trade_id)
     game_state.turn.timer_expires_at.should eq(initial_expires_at)
     game_state.turn.timer_duration_seconds.should eq(initial_duration)
 
-    manager.cancel_player_trade("TIME02", current_player_id)
+    manager.cancel_player_trade("TIME02", current_player_id, trade_id)
     game_state.turn.timer_expires_at.should eq(initial_expires_at)
     game_state.turn.timer_duration_seconds.should eq(initial_duration)
   end
@@ -514,10 +519,12 @@ describe Settler::Engine::Application::LobbyManager do
     requested = ResourcePile.new(0, 0, 1, 2, 0)
 
     manager.propose_player_trade("TRADE123", proposer_id, offered, requested)
-    manager.accept_player_trade("TRADE123", accepting_player_id)
-    manager.reject_player_trade("TRADE123", rejecting_player_id)
+    trade_id = game_state.pending_player_trades.first.id
+    manager.accept_player_trade("TRADE123", accepting_player_id, trade_id)
+    manager.reject_player_trade("TRADE123", rejecting_player_id, trade_id)
 
-    pending_snapshot = JSON.parse(store.snapshots.last[:snapshot_json])["turn"]["pending_player_trade"]
+    pending_snapshot = JSON.parse(store.snapshots.last[:snapshot_json])["turn"]["pending_player_trades"].as_a.first
+    pending_snapshot["id"].as_i.should eq(trade_id)
     pending_snapshot["accepted_player_ids"].as_a.map(&.as_s).should eq([accepting_player_id])
     pending_snapshot["rejected_player_ids"].as_a.map(&.as_s).should eq([rejecting_player_id])
 
@@ -541,7 +548,7 @@ describe Settler::Engine::Application::LobbyManager do
       wheat: rejecting_player.hand.wheat,
     }
 
-    manager.finalize_player_trade("TRADE123", proposer_id, accepting_player_id)
+    manager.finalize_player_trade("TRADE123", proposer_id, trade_id, accepting_player_id)
 
     store.events.last(4).map(&.[:event_type]).should eq([
       "player_trade_proposed",
@@ -550,7 +557,7 @@ describe Settler::Engine::Application::LobbyManager do
       "player_trade_completed",
     ])
 
-    game_state.pending_player_trade.should be_nil
+    game_state.pending_player_trades.should be_empty
     proposer.hand.wood.should eq(proposer_before[:wood] - 2)
     proposer.hand.brick.should eq(proposer_before[:brick] - 1)
     proposer.hand.sheep.should eq(proposer_before[:sheep] + 1)

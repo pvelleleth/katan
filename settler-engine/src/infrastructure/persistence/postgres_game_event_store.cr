@@ -63,6 +63,13 @@ module Settler::Engine::Infrastructure::Persistence
       WHERE short_code = $1
     SQL
 
+    ABANDON_WAITING_LOBBY_SQL = <<-SQL
+      UPDATE game
+      SET status = 'abandoned', is_public = FALSE
+      WHERE short_code = $1
+        AND status = 'waiting'
+    SQL
+
     LOAD_LOBBY_SQL = <<-SQL
       SELECT short_code, host_player_id::text, status, is_public, settings::text, created_at
       FROM game
@@ -217,6 +224,10 @@ module Settler::Engine::Infrastructure::Persistence
     def mark_game_started(lobby_code : String) : Nil
       result = @db.exec(MARK_GAME_STARTED_SQL, lobby_code)
       raise "No game found for lobby #{lobby_code}" if result.rows_affected.zero?
+    end
+
+    def abandon_waiting_lobby(lobby_code : String) : Nil
+      @db.exec(ABANDON_WAITING_LOBBY_SQL, lobby_code)
     end
 
     def append(

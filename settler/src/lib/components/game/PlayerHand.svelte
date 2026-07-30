@@ -86,8 +86,8 @@
 	};
 	$: isMyTurn = gameState.turn.current_player_id === playerId;
 	$: phase = gameState.turn.phase;
-	$: pendingTrade = gameState.turn.pending_player_trade;
-	$: tradePendingForMe = pendingTrade && pendingTrade.player_id === playerId;
+	$: pendingTrades = gameState.turn.pending_player_trades ?? [];
+	$: myOpenTradeCount = pendingTrades.filter((trade: any) => trade.player_id === playerId).length;
 	$: devCardPlayedThisTurn = !!gameState.turn.dev_card_played_this_turn;
 	$: canPlayDevelopmentCards =
 		isMyTurn && (phase === 'Roll' || phase === 'Main') && !devCardPlayedThisTurn;
@@ -503,13 +503,12 @@
 				<div class="flex min-w-[7rem] flex-col gap-1">
 					<button
 						on:click={() => onTradeClick('player')}
-						disabled={!!pendingTrade}
-						class="flex-1 rounded-lg bg-wood px-6 py-1.5 text-xs font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+						class="flex-1 rounded-lg bg-wood px-6 py-1.5 text-xs font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95"
 					>
-						{#if tradePendingForMe}
-							Trade Pending
-						{:else if tradeComposerOpen}
+						{#if tradeComposerOpen}
 							Close Trade
+						{:else if myOpenTradeCount > 0}
+							Trade ({myOpenTradeCount})
 						{:else}
 							Trade
 						{/if}

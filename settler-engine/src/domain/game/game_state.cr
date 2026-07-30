@@ -185,16 +185,27 @@ enum PlayerTradeResponseStatus
 end
 
 class PendingPlayerTrade
+  getter id : Int32
   getter player_id : PlayerId
   getter offered : ResourcePile
   getter requested : ResourcePile
   getter responses : Hash(PlayerId, PlayerTradeResponseStatus)
 
-  def initialize(@player_id : PlayerId, @offered : ResourcePile, @requested : ResourcePile, @responses = {} of PlayerId => PlayerTradeResponseStatus)
+  def initialize(
+    @id : Int32,
+    @player_id : PlayerId,
+    @offered : ResourcePile,
+    @requested : ResourcePile,
+    @responses = {} of PlayerId => PlayerTradeResponseStatus,
+  )
   end
 
   def set_response!(player_id : PlayerId, status : PlayerTradeResponseStatus) : Nil
     @responses[player_id] = status
+  end
+
+  def clear_response!(player_id : PlayerId) : Nil
+    @responses.delete(player_id)
   end
 
   def response_for(player_id : PlayerId) : PlayerTradeResponseStatus?
@@ -245,7 +256,8 @@ class GameState
   property pending_robber_discards : Hash(PlayerId, Int32)
   property robber_eligible_victim_ids : Array(PlayerId)
   property robber_return_phase : TurnPhase?
-  property pending_player_trade : PendingPlayerTrade?
+  property pending_player_trades : Array(PendingPlayerTrade)
+  property next_player_trade_id : Int32
   property version : Int32
 
   def initialize(
@@ -264,7 +276,8 @@ class GameState
     @pending_robber_discards = {} of PlayerId => Int32
     @robber_eligible_victim_ids = [] of PlayerId
     @robber_return_phase = nil
-    @pending_player_trade = nil
+    @pending_player_trades = [] of PendingPlayerTrade
+    @next_player_trade_id = 1
     @bank = Bank.new
     @player_order = @players.keys.shuffle(random: @rng)
     board_setup = BoardSetupGenerator.generate(@topology, @rng)
@@ -301,8 +314,19 @@ class GameState
     @pending_robber_discards : Hash(PlayerId, Int32) = {} of PlayerId => Int32,
     @robber_eligible_victim_ids : Array(PlayerId) = [] of PlayerId,
     @robber_return_phase : TurnPhase? = nil,
-    @pending_player_trade : PendingPlayerTrade? = nil,
+    @pending_player_trades : Array(PendingPlayerTrade) = [] of PendingPlayerTrade,
+    @next_player_trade_id : Int32 = 1,
   )
+  end
+
+  def pending_player_trade(trade_id : Int32) : PendingPlayerTrade?
+    @pending_player_trades.find { |trade| trade.id == trade_id }
+  end
+
+  def allocate_next_player_trade_id! : Int32
+    id = @next_player_trade_id
+    @next_player_trade_id += 1
+    id
   end
 
   def player!(id : PlayerId) : PlayerState

@@ -386,20 +386,23 @@
 		closeTradeComposer();
 	}
 
-	function acceptPlayerTrade() {
-		sendGameAction('accept_player_trade');
+	function acceptPlayerTrade(tradeId: number) {
+		sendGameAction('accept_player_trade', { trade_id: tradeId });
 	}
 
-	function rejectPlayerTrade() {
-		sendGameAction('reject_player_trade');
+	function rejectPlayerTrade(tradeId: number) {
+		sendGameAction('reject_player_trade', { trade_id: tradeId });
 	}
 
-	function cancelPlayerTrade() {
-		sendGameAction('cancel_player_trade');
+	function cancelPlayerTrade(tradeId: number) {
+		sendGameAction('cancel_player_trade', { trade_id: tradeId });
 	}
 
-	function finalizePlayerTrade(partnerPlayerId: string) {
-		sendGameAction('finalize_player_trade', { partner_player_id: partnerPlayerId });
+	function finalizePlayerTrade(tradeId: number, partnerPlayerId: string) {
+		sendGameAction('finalize_player_trade', {
+			trade_id: tradeId,
+			partner_player_id: partnerPlayerId
+		});
 	}
 
 	// Helper colors
@@ -423,8 +426,7 @@
 		(!gameStarted ||
 			!gameState ||
 			gameState.turn.current_player_id !== currentPlayerId ||
-			gameState.turn.phase !== 'Main' ||
-			gameState.turn.pending_player_trade)
+			gameState.turn.phase !== 'Main')
 	) {
 		tradeComposerOpen = false;
 	}

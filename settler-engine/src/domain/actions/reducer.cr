@@ -50,6 +50,7 @@ class GameState
     end
 
     refresh_derived_state!
+    prune_impossible_player_trades! unless @pending_player_trades.empty?
     @version = event.version
     result
   end
@@ -186,22 +187,23 @@ class GameState
 
   private def apply_player_trade_proposed!(event : PlayerTradeProposed) : Nil
     validate_player_trade_proposed!(event)
-    @pending_player_trade = PendingPlayerTrade.new(event.player_id, event.offered, event.requested)
+    @pending_player_trades << PendingPlayerTrade.new(event.trade_id, event.player_id, event.offered, event.requested)
+    @next_player_trade_id = event.trade_id + 1 if event.trade_id >= @next_player_trade_id
   end
 
   private def apply_player_trade_accepted!(event : PlayerTradeAccepted) : Nil
     validate_player_trade_accepted!(event)
-    @pending_player_trade.not_nil!.set_response!(event.player_id, PlayerTradeResponseStatus::Accepted)
+    pending_player_trade!(event.trade_id).set_response!(event.player_id, PlayerTradeResponseStatus::Accepted)
   end
 
   private def apply_player_trade_rejected!(event : PlayerTradeRejected) : Nil
     validate_player_trade_rejected!(event)
-    @pending_player_trade.not_nil!.set_response!(event.player_id, PlayerTradeResponseStatus::Rejected)
+    pending_player_trade!(event.trade_id).set_response!(event.player_id, PlayerTradeResponseStatus::Rejected)
   end
 
   private def apply_player_trade_cancelled!(event : PlayerTradeCancelled) : Nil
     validate_player_trade_cancelled!(event)
-    @pending_player_trade = nil
+    @pending_player_trades.reject! { |trade| trade.id == event.trade_id }
   end
 
   private def apply_player_trade_completed!(event : PlayerTradeCompleted) : Nil
@@ -212,7 +214,7 @@ class GameState
 
     player.hand.transfer_to!(partner.hand, event.offered)
     partner.hand.transfer_to!(player.hand, event.requested)
-    @pending_player_trade = nil
+    @pending_player_trades.reject! { |trade| trade.id == event.trade_id }
   end
 
   private def apply_bank_trade_completed!(event : BankTradeCompleted) : Nil
@@ -280,7 +282,7 @@ class GameState
     @pending_robber_discards.clear
     @robber_eligible_victim_ids.clear
     @robber_return_phase = nil
-    @pending_player_trade = nil
+    @pending_player_trades.clear
 
     idx = @player_order.index(@turn.current_player_id) || raise "current player missing"
     next_idx = (idx + 1) % @player_order.size
@@ -637,12 +639,13 @@ class GameState
 
   private def validate_player_trade_proposed!(event : PlayerTradeProposed) : Nil
     validate_player_trade_offer_payload!(event.player_id, event.offered, event.requested)
-    raise "trade already pending" if @pending_player_trade
+    raise "invalid trade id" if event.trade_id < 1
+    raise "duplicate trade id" if pending_player_trade(event.trade_id)
     raise "no other players available to trade with" if @players.size < 2
   end
 
   private def validate_player_trade_accepted!(event : PlayerTradeAccepted) : Nil
-    pending_trade = pending_player_trade!
+    pending_trade = pending_player_trade!(event.trade_id)
     raise "trade proposer mismatch" unless event.partner_player_id == pending_trade.player_id
     raise "can only accept trades during the main phase" unless @turn.phase.main?
     raise "trade proposer cannot accept their own trade" if event.player_id == pending_trade.player_id
@@ -656,7 +659,7 @@ class GameState
   end
 
   private def validate_player_trade_rejected!(event : PlayerTradeRejected) : Nil
-    pending_trade = pending_player_trade!
+    pending_trade = pending_player_trade!(event.trade_id)
     raise "trade proposer mismatch" unless event.partner_player_id == pending_trade.player_id
     raise "can only reject trades during the main phase" unless @turn.phase.main?
     raise "trade proposer cannot reject their own trade" if event.player_id == pending_trade.player_id
@@ -664,13 +667,13 @@ class GameState
   end
 
   private def validate_player_trade_cancelled!(event : PlayerTradeCancelled) : Nil
-    pending_trade = pending_player_trade!
+    pending_trade = pending_player_trade!(event.trade_id)
     raise "only the proposer can cancel the trade" unless event.player_id == pending_trade.player_id
     raise "can only cancel trades during the main phase" unless @turn.phase.main?
   end
 
   private def validate_player_trade_completed!(event : PlayerTradeCompleted) : Nil
-    pending_trade = pending_player_trade!
+    pending_trade = pending_player_trade!(event.trade_id)
     validate_player_trade_offer_payload!(event.player_id, event.offered, event.requested)
     raise "trade completion partner must be another player" if event.partner_player_id == event.player_id
     raise "unknown trading partner #{event.partner_player_id.value}" unless @players.has_key?(event.partner_player_id)
@@ -712,8 +715,24 @@ class GameState
     raise "player does not have offered resources" unless player.hand.can_cover?(offered)
   end
 
-  private def pending_player_trade! : PendingPlayerTrade
-    @pending_player_trade || raise "no pending player trade"
+  private def pending_player_trade!(trade_id : Int32) : PendingPlayerTrade
+    pending_player_trade(trade_id) || raise "no pending player trade"
+  end
+
+  # Drop offers the current proposer can no longer fund, and drop acceptances
+  # from partners who can no longer cover the requested resources.
+  private def prune_impossible_player_trades! : Nil
+    @pending_player_trades.reject! do |trade|
+      !player!(trade.player_id).hand.can_cover?(trade.offered)
+    end
+
+    @pending_player_trades.each do |trade|
+      trade.accepted_player_ids.each do |accepter_id|
+        unless player!(accepter_id).hand.can_cover?(trade.requested)
+          trade.clear_response!(accepter_id)
+        end
+      end
+    end
   end
 
   private def players_requiring_robber_discard : Hash(PlayerId, Int32)

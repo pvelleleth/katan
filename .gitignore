@@ -1,3 +1,6 @@
 .crystal*
 .DS_Store
 **/.DS_Store
+
+# zero
+.zero/

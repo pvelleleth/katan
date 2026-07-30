@@ -28,7 +28,6 @@
 
 	$: myPlayer = gameState?.players?.find((player: any) => player.id === playerId);
 	$: hand = myPlayer?.hand ?? createEmptyResourcePile();
-	$: pendingTrade = gameState?.turn?.pending_player_trade ?? null;
 	$: bankTradeRates = getBankTradeRates(gameState, playerId);
 	$: bankRate = bankTradeRates[bankOfferedResource];
 	$: harborAdvantageResources = resourceKeys.filter((resource) => bankTradeRates[resource] < 4);
@@ -45,10 +44,8 @@
 	$: canSubmitPlayerTrade =
 		hasAnyResources(offered) &&
 		hasAnyResources(requested) &&
-		!pendingTrade &&
 		resourceKeys.every((resource) => offered[resource] <= (hand[resource] ?? 0));
 	$: canSubmitBankTrade =
-		!pendingTrade &&
 		bankOfferedResource !== bankRequestedResource &&
 		(hand[bankOfferedResource] ?? 0) >= bankRate;
 

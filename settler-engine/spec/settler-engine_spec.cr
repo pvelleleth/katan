@@ -2,6 +2,17 @@ require "./spec_helper"
 require "base64"
 require "openssl/hmac"
 
+class FixedDiceRoller < Settler::Engine::Application::DiceRoller
+  getter rolls : Array(DiceRoll)
+
+  def initialize(@rolls : Array(DiceRoll))
+  end
+
+  def roll : DiceRoll
+    @rolls.shift? || raise "no fixed dice rolls remaining"
+  end
+end
+
 class SnapshotStore < Settler::Engine::Infrastructure::Persistence::GameEventStore
   getter snapshots = Hash(String, Settler::Engine::Infrastructure::Persistence::PersistedGameSnapshot).new
   getter waiting_lobbies = Hash(String, Settler::Engine::Infrastructure::Persistence::PersistedLobby).new
@@ -92,6 +103,10 @@ class SnapshotStore < Settler::Engine::Infrastructure::Persistence::GameEventSto
   end
 
   def mark_game_started(lobby_code : String) : Nil
+    @waiting_lobbies.delete(lobby_code)
+  end
+
+  def abandon_waiting_lobby(lobby_code : String) : Nil
     @waiting_lobbies.delete(lobby_code)
   end
 
@@ -311,6 +326,57 @@ describe Settler::Engine::Application::LobbyManager do
     manager.public_lobby_summaries.should be_empty
   end
 
+  it "exposes a lobby in the public snapshot when visibility is toggled on" do
+    store = SnapshotStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store)
+    lobby = manager.create_lobby("player-1", "Alice", false)
+    host_client = test_client(lobby.id)
+    manager.handle_join(lobby.id, "player-1", "Alice", host_client)
+
+    manager.public_lobby_summaries.should be_empty
+
+    manager.update_visibility(lobby.id, true)
+
+    summaries = manager.public_lobby_summaries
+    summaries.size.should eq(1)
+    summaries.first.short_code.should eq(lobby.id)
+    store.load_waiting_lobby(lobby.id).not_nil!.is_public.should be_true
+  end
+
+  it "abandons empty waiting lobbies so they do not reappear as public" do
+    store = SnapshotStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store)
+    lobby = manager.create_lobby("player-1", "Alice", true)
+    host_client = test_client(lobby.id)
+    manager.handle_join(lobby.id, "player-1", "Alice", host_client)
+
+    manager.remove_player(lobby.id, "player-1", "player_left", "left the lobby")
+
+    manager.public_lobby_summaries.should be_empty
+    manager.lobbies[lobby.id]?.should be_nil
+    store.load_waiting_lobby(lobby.id).should be_nil
+  end
+
+  it "does not restore empty public waiting lobbies on startup" do
+    store = SnapshotStore.new
+    empty_public = Settler::Engine::Infrastructure::Persistence::PersistedLobby.new(
+      short_code: "EMPTY1",
+      host_player_id: "player-1",
+      status: "waiting",
+      is_public: true,
+      settings_json: nil,
+      created_at: Time.utc,
+      participants: [] of Settler::Engine::Infrastructure::Persistence::PersistedLobbyParticipant
+    )
+    store.waiting_lobbies["EMPTY1"] = empty_public
+
+    manager = Settler::Engine::Application::LobbyManager.new(store)
+
+    manager.public_lobby_summaries.should be_empty
+    manager.lobbies["EMPTY1"]?.should be_nil
+    store.load_waiting_lobby("EMPTY1").should be_nil
+  end
+
   it "restores a cleaned up game from the saved snapshot on reconnect" do
     store = SnapshotStore.new
     original_manager = Settler::Engine::Application::LobbyManager.new(store)
@@ -389,7 +455,8 @@ describe Settler::Engine::Application::LobbyManager do
     game_state.player!(PlayerId.new(other_player_ids.last)).hand.sheep = 1
     game_state.player!(PlayerId.new(other_player_ids.last)).hand.wheat = 1
     manager.propose_player_trade("SNAP02", proposer, ResourcePile.new(2, 1, 0, 0, 0), ResourcePile.new(0, 0, 1, 1, 0))
-    manager.accept_player_trade("SNAP02", other_player_ids.last)
+    trade_id = game_state.pending_player_trades.first.id
+    manager.accept_player_trade("SNAP02", other_player_ids.last, trade_id)
 
     manager.remove_player("SNAP02", "player-1")
     manager.remove_player("SNAP02", "player-2")
@@ -401,8 +468,9 @@ describe Settler::Engine::Application::LobbyManager do
 
     hydrated_game = restored_manager.games["SNAP02"]
     hydrated_game.pending_robber_discards[PlayerId.new(discard_player_id)].should eq(4)
-    hydrated_game.pending_player_trade.should_not be_nil
-    hydrated_game.pending_player_trade.not_nil!.accepted_player_ids.map(&.value).should eq([other_player_ids.last])
+    hydrated_game.pending_player_trades.size.should eq(1)
+    hydrated_game.pending_player_trades.first.id.should eq(trade_id)
+    hydrated_game.pending_player_trades.first.accepted_player_ids.map(&.value).should eq([other_player_ids.last])
   end
 
   it "restores robber return phase during steal resolution after a knight from roll" do

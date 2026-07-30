@@ -95,23 +95,63 @@
 		return data as { token: string; playerId: string; name: string; expiresAt: number };
 	}
 
+	function waitForPublicSocketOpen(socket: WebSocket, timeoutMs = 8000) {
+		return new Promise<WebSocket>((resolve, reject) => {
+			if (socket.readyState === WebSocket.OPEN) {
+				resolve(socket);
+				return;
+			}
+
+			if (socket.readyState === WebSocket.CLOSING || socket.readyState === WebSocket.CLOSED) {
+				reject(new Error('Public lobby socket is closed.'));
+				return;
+			}
+
+			const timer = setTimeout(() => {
+				cleanup();
+				reject(new Error('Timed out connecting to public lobbies.'));
+			}, timeoutMs);
+
+			const onOpen = () => {
+				cleanup();
+				resolve(socket);
+			};
+			const onError = () => {
+				cleanup();
+				reject(new Error('Public lobby socket failed to connect.'));
+			};
+			const cleanup = () => {
+				clearTimeout(timer);
+				socket.removeEventListener('open', onOpen);
+				socket.removeEventListener('error', onError);
+			};
+
+			socket.addEventListener('open', onOpen);
+			socket.addEventListener('error', onError);
+		});
+	}
+
 	async function connectPublicLobbies(forceReconnect = false) {
 		publicGamesLoading = true;
 		publicGamesError = '';
 
-		if (forceReconnect) {
+		const previousSocket = publicLobbiesSocket;
+		if (forceReconnect && previousSocket) {
+			// Ignore close events from the socket we are intentionally replacing.
 			suppressNextPublicSocketClose = true;
-			publicLobbiesSocket?.close();
+			previousSocket.close();
 		}
 
 		try {
 			const { token } = await fetchBootstrapToken();
 			teardownPublicSocket = false;
-			publicLobbiesSocket = new WebSocket(`${PUBLIC_WS_URL}/ws/public-lobbies`);
+			const socket = new WebSocket(`${PUBLIC_WS_URL}/ws/public-lobbies`);
+			publicLobbiesSocket = socket;
 
-			publicLobbiesSocket.onopen = () => {
+			socket.onopen = () => {
+				if (publicLobbiesSocket !== socket) return;
 				publicSocketConnected = true;
-				publicLobbiesSocket?.send(
+				socket.send(
 					JSON.stringify({
 						action: 'subscribe_public_lobbies',
 						payload: { token }
@@ -119,7 +159,8 @@
 				);
 			};
 
-			publicLobbiesSocket.onmessage = (event) => {
+			socket.onmessage = (event) => {
+				if (publicLobbiesSocket !== socket) return;
 				const msg = JSON.parse(event.data);
 
 				if (msg.type === 'public_lobbies_snapshot') {
@@ -158,7 +199,12 @@
 				}
 			};
 
-			publicLobbiesSocket.onclose = () => {
+			socket.onclose = () => {
+				// Stale sockets from reconnects should not drive UI state.
+				if (publicLobbiesSocket !== socket) {
+					return;
+				}
+
 				publicSocketConnected = false;
 				if (suppressNextPublicSocketClose) {
 					suppressNextPublicSocketClose = false;
@@ -175,6 +221,8 @@
 					});
 				}, 1500);
 			};
+
+			await waitForPublicSocketOpen(socket);
 		} catch (e) {
 			console.error('Failed to load public games', e);
 			publicGamesError = 'Unable to load public lobbies right now.';
@@ -187,12 +235,22 @@
 
 		createLobbyPending = true;
 		try {
-			if (!publicSocketConnected || !publicLobbiesSocket || !publicBootstrapToken) {
+			if (
+				!publicSocketConnected ||
+				!publicLobbiesSocket ||
+				publicLobbiesSocket.readyState !== WebSocket.OPEN ||
+				!publicBootstrapToken
+			) {
 				await connectPublicLobbies(true);
 			}
 
+			const socket = publicLobbiesSocket;
+			if (!socket || socket.readyState !== WebSocket.OPEN) {
+				throw new Error('Public lobby socket is not connected.');
+			}
+
 			const { token } = await fetchBootstrapToken();
-			publicLobbiesSocket?.send(
+			socket.send(
 				JSON.stringify({
 					action: 'create_lobby',
 					payload: { token }

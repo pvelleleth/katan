@@ -34,6 +34,12 @@ export const load: PageServerLoad = async (event) => {
 			throw error(404, 'Lobby not found');
 		}
 
+		// Abandoned lobbies are cleaned up by the engine when everyone leaves.
+		// Treat them as gone so stale public codes cannot be rejoined.
+		if (activeGame.status === 'abandoned') {
+			throw error(404, 'Lobby not found');
+		}
+
 		// 3. Find existing player profile when available. The websocket bootstrap route
 		// is responsible for creating it if this is the user's first lobby.
 		const activePlayer = await db.query.player.findFirst({

@@ -21,11 +21,12 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		const existingGame = await db.query.game.findFirst({
 			where: eq(game.shortCode, lobbyId),
 			columns: {
-				id: true
+				id: true,
+				status: true
 			}
 		});
 
-		if (!existingGame) {
+		if (!existingGame || existingGame.status === 'abandoned') {
 			return json({ error: 'Lobby not found' }, { status: 404 });
 		}
 	}

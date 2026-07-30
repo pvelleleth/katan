@@ -31,6 +31,7 @@ module Settler::Engine::Infrastructure::Persistence
     abstract def update_lobby_visibility(lobby_code : String, is_public : Bool) : Nil
     abstract def update_game_settings(lobby_code : String, settings_json : String) : Nil
     abstract def mark_game_started(lobby_code : String) : Nil
+    abstract def abandon_waiting_lobby(lobby_code : String) : Nil
 
     abstract def append(
       lobby_code : String,
@@ -84,6 +85,9 @@ module Settler::Engine::Infrastructure::Persistence
     end
 
     def mark_game_started(lobby_code : String) : Nil
+    end
+
+    def abandon_waiting_lobby(lobby_code : String) : Nil
     end
 
     def append(
