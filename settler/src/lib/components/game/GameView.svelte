@@ -14,6 +14,7 @@
 	type ResourceKey,
 	type ResourcePile
 } from './trade';
+	import { playSound, playTimerTick } from '$lib/utils/sound';
 
 	type ChatMessage = {
 		playerId: string;
@@ -28,10 +29,41 @@
 		? new Date(gameState.turn.timer_expires_at).getTime()
 		: null;
 	$: timerRemainingSeconds =
-		timerEnabled && timerExpiresAtMs
+		timerEnabled && timerExpiresAtMs && !isGameOver
 			? Math.max(0, Math.ceil((timerExpiresAtMs - nowMs) / 1000))
 			: null;
 	$: timerLabel = timerRemainingSeconds === null ? null : formatCountdown(timerRemainingSeconds);
+
+	// Tick once per displayed second for the final 5s countdown (5,4,3,2,1), then buzz at 0.
+	// Skip during the short Roll (dice) timer — that phase is only ~7s and shouldn't alarm.
+	let lastTimerTickSecond: number | null = null;
+	let playedTimerBuzz = false;
+	$: {
+		const phase = gameState?.turn?.phase;
+		const isDiceTimer = phase === 'Roll';
+		const secs = isDiceTimer ? null : timerRemainingSeconds;
+
+		if (secs !== null && secs >= 1 && secs <= 5) {
+			playedTimerBuzz = false;
+			if (lastTimerTickSecond !== secs) {
+				lastTimerTickSecond = secs;
+				playTimerTick(secs);
+			}
+		} else if (secs === 0) {
+			lastTimerTickSecond = null;
+			if (!playedTimerBuzz) {
+				playedTimerBuzz = true;
+				playSound('timerBuzz');
+			}
+		} else {
+			if (lastTimerTickSecond !== null) {
+				lastTimerTickSecond = null;
+			}
+			if (playedTimerBuzz) {
+				playedTimerBuzz = false;
+			}
+		}
+	}
 
 	let showGameOverSummary = false;
 	let previousIsGameOver = false;
@@ -72,6 +104,8 @@
 	export let onCancelPlayerTrade: (tradeId: number) => void;
 	export let onFinalizePlayerTrade: (tradeId: number, partnerPlayerId: string) => void;
 	export let onLeaveGame: () => void;
+	export let sfxMuted = false;
+	export let onToggleSfx: () => void = () => {};
 
 	let tradeOffered = createEmptyResourcePile();
 	let tradeRequested = createEmptyResourcePile();
@@ -288,6 +322,14 @@
 						Show Summary
 					</button>
 				{/if}
+				<button
+					on:click={onToggleSfx}
+					class="rounded-full border border-white/20 bg-black/10 px-3 py-1 text-xs font-bold text-white/50 backdrop-blur-md transition-all hover:bg-black/20 hover:text-white"
+					title={sfxMuted ? 'Unmute sound effects' : 'Mute sound effects'}
+					aria-pressed={sfxMuted}
+				>
+					{sfxMuted ? 'Sound Off' : 'Sound On'}
+				</button>
 				<button
 					on:click={toggleCostsPanel}
 					class="rounded-full border border-white/20 bg-black/10 px-3 py-1 text-xs font-bold text-white/50 backdrop-blur-md transition-all hover:bg-black/20 hover:text-white"

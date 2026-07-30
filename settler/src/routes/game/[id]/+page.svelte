@@ -71,8 +71,23 @@
 	import GameView from '$lib/components/game/GameView.svelte';
 	import ChatPanel from '$lib/components/game/ChatPanel.svelte';
 	import type { ResourceKey, ResourcePile } from '$lib/components/game/trade';
+	import {
+		installAudioUnlock,
+		isMuted,
+		playGameEvent,
+		playSound,
+		setMuted,
+		unlockAudio
+	} from '$lib/utils/sound';
+
+	let sfxMuted = false;
+	let previousGamePhase: string | null = null;
+	let removeAudioUnlock: (() => void) | null = null;
 
 	onMount(async () => {
+		sfxMuted = isMuted();
+		removeAudioUnlock = installAudioUnlock();
+
 		try {
 			const { data: sessionData } = await authClient.getSession();
 
@@ -153,7 +168,17 @@
 		if (ws) {
 			ws.close();
 		}
+		removeAudioUnlock?.();
 	});
+
+	function toggleSfxMuted() {
+		unlockAudio();
+		sfxMuted = !sfxMuted;
+		setMuted(sfxMuted);
+		if (!sfxMuted) {
+			playSound('ui');
+		}
+	}
 
 	async function fetchLobbyBootstrap() {
 		const res = await fetch(`/api/ws-bootstrap?lobbyId=${lobbyId}`);
@@ -210,10 +235,23 @@
 					color: fallbackColors[index % fallbackColors.length]
 				}));
 			} else if (msg.type === 'game_started' || msg.type === 'game_update') {
+				const wasStarted = gameStarted;
 				isConnecting = false;
 				joinError = '';
 				gameStarted = true;
 				gameState = msg.game_state;
+
+				const nextPhase = msg.game_state?.turn?.phase ?? null;
+				if (msg.type === 'game_started' && !wasStarted) {
+					playGameEvent('game_started');
+				} else if (
+					nextPhase === 'GameOver' &&
+					previousGamePhase &&
+					previousGamePhase !== 'GameOver'
+				) {
+					playSound('victory');
+				}
+				previousGamePhase = nextPhase;
 			} else if (msg.type === 'game_log') {
 				gameLog = [
 					...gameLog,
@@ -224,6 +262,10 @@
 						createdAt: new Date().toISOString()
 					}
 				];
+				// Live events only — historical log load does not go through the socket.
+				if (msg.event_type && msg.event_type !== 'game_started') {
+					playGameEvent(msg.event_type, msg.payload ?? null, msg.message ?? null);
+				}
 			} else if (msg.type === 'chat_message') {
 				chatMessages = [
 					...chatMessages,
@@ -234,6 +276,10 @@
 						createdAt: msg.created_at ?? new Date().toISOString()
 					}
 				];
+				// Soft ping for messages from other players.
+				if (msg.player_id && msg.player_id !== currentPlayerId) {
+					playGameEvent('chat_message');
+				}
 			} else if (msg.type === 'kicked') {
 				// This client was kicked by the host
 				ws?.close();
@@ -245,6 +291,7 @@
 				} else {
 					visibilityError = msg.message || 'Unable to update lobby visibility.';
 				}
+				playSound('error');
 			}
 		};
 
@@ -451,7 +498,16 @@
 				SETTLER
 			</a>
 
-			<div class="flex items-center gap-6">
+			<div class="flex items-center gap-3">
+				<button
+					type="button"
+					on:click={toggleSfxMuted}
+					class="rounded-full border border-wood/20 px-3 py-1 text-xs font-bold text-wood transition-all hover:border-ocean/30 hover:text-ocean"
+					title={sfxMuted ? 'Unmute sound effects' : 'Mute sound effects'}
+					aria-pressed={sfxMuted}
+				>
+					{sfxMuted ? 'Sound Off' : 'Sound On'}
+				</button>
 				<button
 					on:click={() => goto('/game')}
 					class="rounded-full border border-wood/20 px-3 py-1 text-xs font-bold text-wood transition-all hover:border-brick/20 hover:text-brick"
@@ -516,6 +572,8 @@
 			{chatMessages}
 			{tradeComposerOpen}
 			{tradeComposerMode}
+			sfxMuted={sfxMuted}
+			onToggleSfx={toggleSfxMuted}
 			onOpenTradeComposer={openTradeComposer}
 			onCloseTradeComposer={closeTradeComposer}
 			onTradeComposerModeChange={setTradeComposerMode}
