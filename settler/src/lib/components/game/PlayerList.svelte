@@ -23,6 +23,7 @@
 	$: isMyTurn = currentPlayerId === playerId;
 	$: isStealPhase = phase === 'StealResource';
 	$: eligibleVictims = gameState.turn.robber_eligible_victim_ids || [];
+	$: canChooseVictim = isStealPhase && isMyTurn;
 
 	// Map game state players to lobby players to get colors
 	$: gamePlayers = playerOrder.map((id: string) => {
@@ -45,8 +46,12 @@
 	};
 
 	function handleSteal(victimId: string) {
-		if (!isMyTurn || !isStealPhase || !eligibleVictims.includes(victimId)) return;
+		if (!canChooseVictim || !eligibleVictims.includes(victimId)) return;
 		sendGameAction('robber_steal', { victim_player_id: victimId });
+	}
+
+	function isEligibleVictim(id: string) {
+		return eligibleVictims.includes(id);
 	}
 
 	let gameLogCollapsed = false;
@@ -62,18 +67,35 @@
 <div class="flex h-full flex-col gap-4">
 	<div class="shrink-0">
 		<h2 class="mb-2 text-xl font-black text-wood-dark">Players</h2>
+
 		<div class="flex flex-col gap-2">
 			{#each gamePlayers as player}
 				{@const isCurrentTurn = player.id === currentPlayerId}
 				{@const isMe = player.id === playerId}
 				{@const hasLongestRoad = player.has_longest_road}
 				{@const hasLargestArmy = player.has_largest_army}
+				{@const canStealFrom = canChooseVictim && !isMe && isEligibleVictim(player.id)}
+				{@const isDimmedDuringSteal =
+					canChooseVictim && !canStealFrom}
 				<div
-					class="relative flex flex-col gap-2 rounded-2xl border-2 p-2 transition-all {isCurrentTurn
-						? 'border-ocean bg-white shadow-lg'
-						: 'border-wood/10 bg-white/50'} {player.isConnected ? '' : 'opacity-65'}"
+					class="relative flex flex-col gap-2 rounded-2xl border-2 p-2 transition-all {canStealFrom
+						? 'z-10 border-brick bg-white shadow-lg shadow-brick/25 ring-2 ring-brick/40'
+						: isCurrentTurn
+							? 'border-ocean bg-white shadow-lg'
+							: 'border-wood/10 bg-white/50'} {player.isConnected ? '' : 'opacity-65'} {isDimmedDuringSteal
+						? 'opacity-45 grayscale-[0.35]'
+						: ''}"
 				>
-					{#if isCurrentTurn}
+					{#if canStealFrom}
+						<div
+							class="pointer-events-none absolute -inset-1 animate-pulse rounded-2xl border-2 border-brick"
+						></div>
+						<div
+							class="absolute -top-2.5 left-3 z-10 rounded-full bg-brick px-2 py-0.5 text-[10px] font-black tracking-wider text-white uppercase shadow-md"
+						>
+							Can steal
+						</div>
+					{:else if isCurrentTurn}
 						<div
 							class="absolute -top-3 -right-3 flex h-6 w-6 items-center justify-center rounded-full bg-ocean text-white shadow-md"
 						>
@@ -227,18 +249,30 @@
 						</div>
 					</div>
 
-					<!-- Steal Overlay -->
-					{#if isStealPhase && isMyTurn && !isMe && eligibleVictims.includes(player.id)}
+					{#if canStealFrom}
 						<button
+							type="button"
 							on:click={() => handleSteal(player.id)}
-							class="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/60 font-black tracking-widest text-white opacity-0 backdrop-blur-sm transition-all hover:opacity-100"
+							class="relative z-10 mt-0.5 flex w-full items-center justify-center gap-2 rounded-xl bg-brick px-3 py-2.5 text-sm font-black tracking-wide text-white shadow-md shadow-brick/30 transition-transform hover:scale-[1.02] hover:bg-brick/90 active:scale-[0.98]"
+							aria-label="Steal a random resource from {player.name}"
 						>
-							STEAL
+							<svg
+								class="h-4 w-4 shrink-0"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.5"
+								viewBox="0 0 24 24"
+								aria-hidden="true"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									d="M8 7V5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2h-2"
+								/>
+								<rect x="2" y="9" width="12" height="12" rx="2" />
+							</svg>
+							Steal from {player.name}
 						</button>
-						<!-- Pulsing indicator to show they can be stolen from -->
-						<div
-							class="pointer-events-none absolute -inset-1 animate-pulse rounded-2xl border-2 border-brick/50"
-						></div>
 					{/if}
 				</div>
 			{/each}

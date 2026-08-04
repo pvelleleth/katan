@@ -548,9 +548,12 @@
 				</div>
 			{:else if phase === 'StealResource'}
 				<div
-					class="rounded-xl border-2 border-brick/20 bg-brick/10 px-5 py-2.5 text-sm font-bold text-brick"
+					class="rounded-xl border-2 border-brick/30 bg-brick px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-brick/20"
 				>
-					Select a player to steal from!
+					<span class="block">Steal a resource</span>
+					<span class="mt-0.5 block text-xs font-semibold text-white/90">
+						Use a Steal button on a highlighted player in the list.
+					</span>
 				</div>
 			{/if}
 		</div>
