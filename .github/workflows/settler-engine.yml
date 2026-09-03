@@ -17,7 +17,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/pvelleleth/settler-engine
+  IMAGE: ghcr.io/${{ github.repository }}/settler-engine
   DEPLOY_HOST: sock.settler.live
   DEPLOY_USER: root
 

@@ -4,7 +4,7 @@
 set -euo pipefail
 
 readonly COMPOSE_FILE="${COMPOSE_FILE:-/opt/settler-engine/docker-compose.yml}"
-readonly IMAGE="ghcr.io/pvelleleth/settler-engine"
+readonly IMAGE="ghcr.io/pvelleleth/katan/settler-engine"
 readonly TAG="${SETTLER_ENGINE_TAG:-latest}"
 
 if [[ -z "${GHCR_TOKEN:-}" || -z "${GHCR_USER:-}" ]]; then

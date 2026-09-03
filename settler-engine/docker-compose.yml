@@ -2,7 +2,7 @@ name: settler-engine
 
 services:
   settler-engine:
-    image: ghcr.io/pvelleleth/settler-engine:${SETTLER_ENGINE_TAG:-latest}
+    image: ghcr.io/pvelleleth/katan/settler-engine:${SETTLER_ENGINE_TAG:-latest}
     container_name: settler-engine
     restart: unless-stopped
     env_file:
