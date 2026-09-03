@@ -1015,47 +1015,6 @@
 												<p class="mt-3 text-sm font-semibold text-brick">{visibilityError}</p>
 											{/if}
 										</div>
-										<div class="flex flex-col gap-3 pt-2">
-											<label
-												class="flex items-center gap-3 {!isHost
-													? 'cursor-default'
-													: 'cursor-pointer'}"
-											>
-												<input
-													type="checkbox"
-													bind:checked={settings.useSeafarers}
-													disabled={!isHost}
-													class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
-												/>
-												<span class="text-sm font-semibold text-wood-dark">Seafarers</span>
-											</label>
-											<label
-												class="flex items-center gap-3 {!isHost
-													? 'cursor-default'
-													: 'cursor-pointer'}"
-											>
-												<input
-													type="checkbox"
-													bind:checked={settings.useTraders}
-													disabled={!isHost}
-													class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
-												/>
-												<span class="text-sm font-semibold text-wood-dark">Traders</span>
-											</label>
-											<label
-												class="flex items-center gap-3 {!isHost
-													? 'cursor-default'
-													: 'cursor-pointer'}"
-											>
-												<input
-													type="checkbox"
-													bind:checked={settings.useExplorers}
-													disabled={!isHost}
-													class="h-4 w-4 rounded border-wood/30 text-ocean focus:ring-ocean/30 disabled:cursor-not-allowed disabled:opacity-70"
-												/>
-												<span class="text-sm font-semibold text-wood-dark">Explorers</span>
-											</label>
-										</div>
 									</div>
 									{#if isHost}
 										<button
