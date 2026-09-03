@@ -1,0 +1,1 @@
+ALTER TABLE "game" ALTER COLUMN "settings" SET DEFAULT '{"turnTimerEnabled":true,"turnTimeSeconds":120,"maxPlayers":4,"victoryPoints":10,"gameMode":"base","fiveSixTurnRule":"paired","useSeafarers":false,"useTraders":false,"useExplorers":false}'::jsonb;

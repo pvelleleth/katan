@@ -12,7 +12,9 @@ module Settler::Engine::Application
     participant_count : Int32,
     max_players : Int32,
     created_at : String,
-    is_public : Bool
+    is_public : Bool,
+    game_mode : String,
+    five_six_turn_rule : String
 
   abstract class DiceRoller
     abstract def roll : DiceRoll
@@ -225,20 +227,41 @@ module Settler::Engine::Application
       true
     end
 
-    def update_settings(lobby_id : String, settings : Hash(String, JSON::Any))
+    def update_settings(lobby_id : String, settings : Hash(String, JSON::Any)) : Bool
       previous_summary = current_public_lobby_summary_for(lobby_id)
       lobby = get_or_create_lobby(lobby_id)
-      lobby.settings = settings
+      normalized_settings = normalized_settings(settings)
+      validate_lobby_settings!(lobby, normalized_settings)
+      if @games[lobby_id]?
+        structural_keys = ["gameMode", "fiveSixTurnRule", "maxPlayers"]
+        if structural_keys.any? { |key| lobby.settings[key]? != normalized_settings[key]? }
+          raise "Cannot change game mode, extension rules, or seats after the game has started"
+        end
+      end
+
+      structural_changed = ["gameMode", "fiveSixTurnRule", "maxPlayers"].any? do |key|
+        lobby.settings[key]? != normalized_settings[key]?
+      end
+      lobby.settings = normalized_settings
+      if structural_changed
+        lobby.players.each do |player|
+          next unless player.ready
+          player.ready = false
+          @game_event_store.update_participant_ready(lobby_id, player.id, false)
+        end
+      end
       if game_state = @games[lobby_id]?
         game_state.settings.clear
-        settings.each { |key, value| game_state.settings[key] = value }
+        normalized_settings.each { |key, value| game_state.settings[key] = value }
         initialize_turn_timer!(lobby_id, game_state)
       end
-      @game_event_store.update_game_settings(lobby_id, settings.to_json)
+      @game_event_store.update_game_settings(lobby_id, normalized_settings.to_json)
       broadcast_lobby_state(lobby_id)
       broadcast_public_lobby_change(lobby_id, previous_summary)
+      true
     rescue ex
       puts "Failed to persist game settings for #{lobby_id}: #{ex.message}"
+      false
     end
 
     def update_visibility(lobby_id : String, is_public : Bool)
@@ -295,9 +318,10 @@ module Settler::Engine::Application
       end
     end
 
-    def start_game(lobby_id : String)
+    def start_game(lobby_id : String, validate_lobby : Bool = false) : Bool
       previous_summary = current_public_lobby_summary_for(lobby_id)
       lobby = get_or_create_lobby(lobby_id)
+      validate_game_start!(lobby) if validate_lobby
       game_state = build_game_state(lobby)
       @games[lobby_id] = game_state
 
@@ -329,8 +353,10 @@ module Settler::Engine::Application
       broadcast_game_state(lobby_id, "game_started")
       broadcast_lobby_state(lobby_id)
       broadcast_public_lobby_change(lobby_id, previous_summary)
+      true
     rescue ex
       puts "Failed to start game for #{lobby_id}: #{ex.message}"
+      false
     end
 
     def place_settlement(lobby_id : String, player_id : String, vertex_id : String, free : Bool = false, grant_timer_bonus : Bool = true)
@@ -786,7 +812,7 @@ module Settler::Engine::Application
       return unless persisted_snapshot
 
       snapshot = JSON.parse(persisted_snapshot.snapshot_json)
-      settings = snapshot["settings"]?.try(&.as_h) || parse_json_hash(persisted_snapshot.settings_json)
+      settings = normalized_settings(snapshot["settings"]?.try(&.as_h) || parse_json_hash(persisted_snapshot.settings_json))
       game_state = hydrate_game_state(snapshot, settings)
       lobby = hydrate_lobby(lobby_id, game_state, settings)
 
@@ -802,12 +828,13 @@ module Settler::Engine::Application
       lobby.host_id = persisted_lobby.host_player_id
       lobby.is_public = persisted_lobby.is_public
       lobby.created_at = persisted_lobby.created_at
-      lobby.settings =
+      lobby.settings = normalized_settings(
         if persisted_lobby.settings_json
           parse_json_hash(persisted_lobby.settings_json)
         else
           default_settings_json
         end
+      )
 
       persisted_lobby.participants.each do |participant|
         player = Domain::Player.new(participant.player_id, participant.player_name)
@@ -844,7 +871,7 @@ module Settler::Engine::Application
 
     private def hydrate_lobby(lobby_id : String, game_state : GameState, settings : Hash(String, JSON::Any)) : Domain::Lobby
       lobby = Domain::Lobby.new(lobby_id)
-      lobby.settings = settings
+      lobby.settings = normalized_settings(settings)
       game_state.player_order.each do |player_id|
         player_state = game_state.player!(player_id)
         player = Domain::Player.new(player_state.id.value, player_state.name)
@@ -857,7 +884,8 @@ module Settler::Engine::Application
     end
 
     private def hydrate_game_state(snapshot : JSON::Any, settings : Hash(String, JSON::Any)) : GameState
-      topology = BoardTopology.standard
+      settings = normalized_settings(settings)
+      topology = extension_mode?(settings) ? BoardTopology.five_six_extension : BoardTopology.standard
       players = hydrate_players(snapshot["players"].as_a)
       board = hydrate_board(snapshot["board"], topology)
       bank = hydrate_bank(snapshot["bank"])
@@ -993,14 +1021,18 @@ module Settler::Engine::Application
     end
 
     private def hydrate_turn(turn_json : JSON::Any) : TurnState
+      current_player_id = PlayerId.new(turn_json["current_player_id"].as_s)
       TurnState.new(
-        current_player_id: PlayerId.new(turn_json["current_player_id"].as_s),
+        current_player_id: current_player_id,
         number: turn_json["number"].as_i.to_i32,
         phase: parse_enum(TurnPhase, turn_json["phase"].as_s),
         dev_card_played_this_turn: turn_json["dev_card_played_this_turn"].as_bool,
         timer_started_at: hydrate_time(turn_json["timer_started_at"]?),
         timer_expires_at: hydrate_time(turn_json["timer_expires_at"]?),
-        timer_duration_seconds: turn_json["timer_duration_seconds"]?.try { |value| value.raw.nil? ? nil : value.as_i.to_i32 }
+        timer_duration_seconds: turn_json["timer_duration_seconds"]?.try { |value| value.raw.nil? ? nil : value.as_i.to_i32 },
+        role: turn_json["role"]?.try { |value| parse_enum(TurnRole, value.as_s) } || TurnRole::Regular,
+        primary_player_id: turn_json["primary_player_id"]?.try { |value| PlayerId.new(value.as_s) } || current_player_id,
+        special_build_remaining_player_ids: turn_json["special_build_remaining_player_ids"]?.try(&.as_a.map { |value| PlayerId.new(value.as_s) }) || [] of PlayerId
       )
     end
 
@@ -1114,7 +1146,9 @@ module Settler::Engine::Application
         participant_count: lobby.players.size.to_i32,
         max_players: max_players_for(lobby),
         created_at: lobby.created_at.to_rfc3339,
-        is_public: lobby.is_public
+        is_public: lobby.is_public,
+        game_mode: lobby.settings["gameMode"]?.try(&.as_s) || "base",
+        five_six_turn_rule: lobby.settings["fiveSixTurnRule"]?.try(&.as_s) || "paired"
       )
     end
 
@@ -1158,10 +1192,13 @@ module Settler::Engine::Application
         maxPlayers:       summary.max_players,
         createdAt:        summary.created_at,
         isPublic:         summary.is_public,
+        gameMode:         summary.game_mode,
+        fiveSixTurnRule:  summary.five_six_turn_rule,
       }
     end
 
     private def max_players_for(lobby : Domain::Lobby) : Int32
+      return 6 if extension_mode?(lobby.settings)
       lobby.settings["maxPlayers"]?.try(&.as_i.to_i32) || 4
     end
 
@@ -1172,6 +1209,8 @@ module Settler::Engine::Application
           turnTimeSeconds:  120,
           maxPlayers:       4,
           victoryPoints:    10,
+          gameMode:         "base",
+          fiveSixTurnRule:  "paired",
           useSeafarers:     false,
           useTraders:       false,
           useExplorers:     false,
@@ -1185,18 +1224,48 @@ module Settler::Engine::Application
       JSON.parse(json).as_h.transform_values { |value| value }
     end
 
+    private def normalized_settings(settings : Hash(String, JSON::Any)) : Hash(String, JSON::Any)
+      normalized = default_settings_json.merge(settings)
+      normalized["maxPlayers"] = JSON::Any.new(6_i64) if extension_mode?(normalized)
+      normalized
+    end
+
+    private def extension_mode?(settings : Hash(String, JSON::Any)) : Bool
+      settings["gameMode"]?.try(&.as_s) == "fiveSixExtension"
+    end
+
+    private def validate_lobby_settings!(lobby : Domain::Lobby, settings : Hash(String, JSON::Any)) : Nil
+      mode = settings["gameMode"].as_s
+      raise "Unknown game mode" unless mode == "base" || mode == "fiveSixExtension"
+      turn_rule = settings["fiveSixTurnRule"].as_s
+      raise "Unknown 5-6 player turn rule" unless turn_rule == "paired" || turn_rule == "specialBuild"
+      max_players = settings["maxPlayers"].as_i.to_i32
+      allowed = extension_mode?(settings) ? (5..6) : (3..4)
+      raise "Invalid seat count for selected game mode" unless allowed.includes?(max_players)
+      raise "The selected game mode has fewer seats than the current lobby" if lobby.players.size > max_players
+    end
+
+    private def validate_game_start!(lobby : Domain::Lobby) : Nil
+      settings = normalized_settings(lobby.settings)
+      validate_lobby_settings!(lobby, settings)
+      allowed = extension_mode?(settings) ? (5..6) : (3..4)
+      raise "Incorrect player count for selected game mode" unless allowed.includes?(lobby.players.size)
+      raise "All players must be connected and ready" unless lobby.players.all? { |player| player.connected && player.ready }
+    end
+
     private def parse_enum(enum_type : T.class, value : String) : T forall T
       enum_type.parse(value)
     end
 
     private def build_game_state(lobby : Domain::Lobby) : GameState
+      settings = normalized_settings(lobby.settings)
       GameState.new(
-        topology: BoardTopology.standard,
+        topology: extension_mode?(settings) ? BoardTopology.five_six_extension : BoardTopology.standard,
         players: lobby.players.map { |player|
           player_id = PlayerId.new(player.id)
           {player_id, PlayerState.new(player_id, player.name)}
         }.to_h,
-        settings: lobby.settings
+        settings: settings
       )
     end
 
@@ -1221,20 +1290,23 @@ module Settler::Engine::Application
         version:      game_state.version,
         player_order: game_state.player_order.map(&.value),
         turn:         {
-          current_player_id:         game_state.turn.current_player_id.value,
-          number:                    game_state.turn.number,
-          phase:                     game_state.turn.phase.to_s,
-          dev_card_played_this_turn: game_state.turn.dev_card_played_this_turn,
-          timer_enabled:             game_state.turn_timer_enabled?,
-          timer_started_at:          game_state.turn.timer_started_at.try(&.to_rfc3339),
-          timer_expires_at:          game_state.turn.timer_expires_at.try(&.to_rfc3339),
-          timer_duration_seconds:    game_state.turn.timer_duration_seconds,
-          robber_return_phase:       game_state.robber_return_phase.try(&.to_s),
-          pending_player_trades:     game_state.pending_player_trades.map { |trade|
+          current_player_id:                  game_state.turn.current_player_id.value,
+          primary_player_id:                  game_state.turn.primary_player_id.value,
+          role:                               game_state.turn.role.to_s,
+          special_build_remaining_player_ids: game_state.turn.special_build_remaining_player_ids.map(&.value),
+          number:                             game_state.turn.number,
+          phase:                              game_state.turn.phase.to_s,
+          dev_card_played_this_turn:          game_state.turn.dev_card_played_this_turn,
+          timer_enabled:                      game_state.turn_timer_enabled?,
+          timer_started_at:                   game_state.turn.timer_started_at.try(&.to_rfc3339),
+          timer_expires_at:                   game_state.turn.timer_expires_at.try(&.to_rfc3339),
+          timer_duration_seconds:             game_state.turn.timer_duration_seconds,
+          robber_return_phase:                game_state.robber_return_phase.try(&.to_s),
+          pending_player_trades:              game_state.pending_player_trades.map { |trade|
             serialize_pending_player_trade(trade, viewer_player_id)
           },
-          next_player_trade_id:      game_state.next_player_trade_id,
-          pending_robber_discards:   game_state.pending_robber_discards.map { |target_player_id, count|
+          next_player_trade_id:    game_state.next_player_trade_id,
+          pending_robber_discards: game_state.pending_robber_discards.map { |target_player_id, count|
             {
               player_id: target_player_id.value,
               count:     count,

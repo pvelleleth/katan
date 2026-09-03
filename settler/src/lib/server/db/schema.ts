@@ -19,6 +19,8 @@ export type GameSettings = {
 	turnTimeSeconds: number;
 	maxPlayers: number;
 	victoryPoints: number;
+	gameMode: 'base' | 'fiveSixExtension';
+	fiveSixTurnRule: 'paired' | 'specialBuild';
 	useSeafarers: boolean;
 	useTraders: boolean;
 	useExplorers: boolean;
@@ -31,6 +33,8 @@ const defaultGameSettings: GameSettings = {
 	turnTimeSeconds: 120,
 	maxPlayers: 4,
 	victoryPoints: 10,
+	gameMode: 'base',
+	fiveSixTurnRule: 'paired',
 	useSeafarers: false,
 	useTraders: false,
 	useExplorers: false

@@ -25,6 +25,8 @@
 		maxPlayers: number;
 		createdAt: string;
 		isPublic: boolean;
+		gameMode: 'base' | 'fiveSixExtension';
+		fiveSixTurnRule: 'paired' | 'specialBuild';
 	};
 
 	let publicGames: PublicLobbySummary[] = [];
@@ -164,9 +166,7 @@
 				const msg = JSON.parse(event.data);
 
 				if (msg.type === 'public_lobbies_snapshot') {
-					publicGames = Array.isArray(msg.lobbies)
-						? [...msg.lobbies].sort(sortPublicLobbies)
-						: [];
+					publicGames = Array.isArray(msg.lobbies) ? [...msg.lobbies].sort(sortPublicLobbies) : [];
 					publicGamesLoading = false;
 					publicGamesError = '';
 					return;
@@ -475,6 +475,11 @@
 										<p class="text-xs font-semibold tracking-wide text-wood-light uppercase">
 											{publicGame.shortCode} · {publicGame.participantCount}/{publicGame.maxPlayers}
 											players
+										</p>
+										<p class="mt-1 text-[10px] font-bold tracking-wide text-forest uppercase">
+											{publicGame.gameMode === 'fiveSixExtension'
+												? `5–6 Extension · ${publicGame.fiveSixTurnRule === 'specialBuild' ? 'Legacy build phase' : 'Paired turns'}`
+												: 'Normal game'}
 										</p>
 									</div>
 

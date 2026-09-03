@@ -288,20 +288,52 @@ describe Settler::Engine::Application::LobbyManager do
       JSON.parse(
         {
           turnTimerEnabled: true,
-          turnTimeSeconds: 120,
-          maxPlayers: 1,
-          victoryPoints: 10,
-          useSeafarers: false,
-          useTraders: false,
-          useExplorers: false,
+          turnTimeSeconds:  120,
+          maxPlayers:       3,
+          victoryPoints:    10,
+          useSeafarers:     false,
+          useTraders:       false,
+          useExplorers:     false,
         }.to_json
       ).as_h
     )
 
-    second_client = test_client(lobby.id)
-    manager.handle_join(lobby.id, "player-2", "Bob", second_client)
+    manager.handle_join(lobby.id, "player-2", "Bob", test_client(lobby.id))
+    manager.handle_join(lobby.id, "player-3", "Cara", test_client(lobby.id))
+    manager.handle_join(lobby.id, "player-4", "Drew", test_client(lobby.id))
 
-    manager.get_or_create_lobby(lobby.id).players.map(&.id).should eq(["player-1"])
+    manager.get_or_create_lobby(lobby.id).players.map(&.id).should eq(["player-1", "player-2", "player-3"])
+  end
+
+  it "always provides six seats for a 5-6 player extension lobby" do
+    store = SnapshotStore.new
+    manager = Settler::Engine::Application::LobbyManager.new(store)
+    lobby = manager.create_lobby("player-1", "Alice", true)
+    manager.handle_join(lobby.id, "player-1", "Alice", test_client(lobby.id))
+
+    manager.update_settings(
+      lobby.id,
+      JSON.parse(
+        {
+          gameMode:         "fiveSixExtension",
+          fiveSixTurnRule:  "paired",
+          maxPlayers:       5,
+          turnTimerEnabled: true,
+          turnTimeSeconds:  120,
+          victoryPoints:    10,
+          useSeafarers:     false,
+          useTraders:       false,
+          useExplorers:     false,
+        }.to_json
+      ).as_h
+    ).should be_true
+
+    (2..7).each do |index|
+      manager.handle_join(lobby.id, "player-#{index}", "Player #{index}", test_client(lobby.id))
+    end
+
+    lobby.settings["maxPlayers"].as_i.should eq(6)
+    lobby.players.map(&.id).should eq(["player-1", "player-2", "player-3", "player-4", "player-5", "player-6"])
   end
 
   it "restores public waiting lobbies from the persistence store on startup" do

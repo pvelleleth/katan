@@ -16,6 +16,12 @@ enum TurnPhase
   GameOver
 end
 
+enum TurnRole
+  Regular
+  PairedSecondary
+  SpecialBuild
+end
+
 class ResourceHand
   property wood : Int32
   property brick : Int32
@@ -166,6 +172,9 @@ class TurnState
   property timer_started_at : Time?
   property timer_expires_at : Time?
   property timer_duration_seconds : Int32?
+  property role : TurnRole
+  property primary_player_id : PlayerId
+  property special_build_remaining_player_ids : Array(PlayerId)
 
   def initialize(
     @current_player_id : PlayerId,
@@ -175,7 +184,11 @@ class TurnState
     @timer_started_at : Time? = nil,
     @timer_expires_at : Time? = nil,
     @timer_duration_seconds : Int32? = nil,
+    @role : TurnRole = TurnRole::Regular,
+    primary_player_id : PlayerId? = nil,
+    @special_build_remaining_player_ids : Array(PlayerId) = [] of PlayerId,
   )
+    @primary_player_id = primary_player_id || @current_player_id
   end
 end
 
@@ -278,7 +291,7 @@ class GameState
     @robber_return_phase = nil
     @pending_player_trades = [] of PendingPlayerTrade
     @next_player_trade_id = 1
-    @bank = Bank.new
+    @bank = five_six_extension? ? Bank.five_six_extension : Bank.new
     @player_order = @players.keys.shuffle(random: @rng)
     board_setup = BoardSetupGenerator.generate(@topology, @rng)
     @board = BoardState.new(
@@ -335,6 +348,26 @@ class GameState
 
   def current_player! : PlayerState
     player!(@turn.current_player_id)
+  end
+
+  def five_six_extension? : Bool
+    @settings["gameMode"]?.try(&.as_s) == "fiveSixExtension"
+  end
+
+  def five_six_turn_rule : String
+    @settings["fiveSixTurnRule"]?.try(&.as_s) || "paired"
+  end
+
+  def paired_turns? : Bool
+    five_six_extension? && five_six_turn_rule == "paired"
+  end
+
+  def special_build_turns? : Bool
+    five_six_extension? && five_six_turn_rule == "specialBuild"
+  end
+
+  def victory_point_target : Int32
+    @settings["victoryPoints"]?.try(&.as_i.to_i32) || 10
   end
 
   def turn_timer_enabled? : Bool

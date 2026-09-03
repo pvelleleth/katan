@@ -86,11 +86,15 @@
 	};
 	$: isMyTurn = gameState.turn.current_player_id === playerId;
 	$: phase = gameState.turn.phase;
+	$: turnRole = gameState.turn.role || 'Regular';
 	$: pendingTrades = gameState.turn.pending_player_trades ?? [];
 	$: myOpenTradeCount = pendingTrades.filter((trade: any) => trade.player_id === playerId).length;
 	$: devCardPlayedThisTurn = !!gameState.turn.dev_card_played_this_turn;
 	$: canPlayDevelopmentCards =
-		isMyTurn && (phase === 'Roll' || phase === 'Main') && !devCardPlayedThisTurn;
+		isMyTurn &&
+		turnRole !== 'SpecialBuild' &&
+		(phase === 'Roll' || phase === 'Main') &&
+		!devCardPlayedThisTurn;
 	$: devCardsRemaining = (Object.values(gameState.bank?.dev_cards || {}) as number[]).reduce(
 		(total, count) => total + count,
 		0
@@ -360,9 +364,15 @@
 							<span
 								role="button"
 								tabindex="0"
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-brick text-white shadow-md transition-transform hover:scale-110 active:scale-95 {discardSelection[res.id] === 0 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}"
+								class="flex h-8 w-8 items-center justify-center rounded-full bg-brick text-white shadow-md transition-transform hover:scale-110 active:scale-95 {discardSelection[
+									res.id
+								] === 0
+									? 'cursor-not-allowed opacity-50'
+									: 'cursor-pointer'}"
 								on:click|stopPropagation={() => toggleDiscard(res.id, -1)}
-								on:keydown|stopPropagation={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggleDiscard(res.id, -1))}
+								on:keydown|stopPropagation={(e) =>
+									(e.key === 'Enter' || e.key === ' ') &&
+									(e.preventDefault(), toggleDiscard(res.id, -1))}
 							>
 								-
 							</span>
@@ -374,9 +384,15 @@
 							<span
 								role="button"
 								tabindex="0"
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-forest text-white shadow-md transition-transform hover:scale-110 active:scale-95 {discardSelection[res.id] === visibleCount || currentDiscardTotal >= discardTarget ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}"
+								class="flex h-8 w-8 items-center justify-center rounded-full bg-forest text-white shadow-md transition-transform hover:scale-110 active:scale-95 {discardSelection[
+									res.id
+								] === visibleCount || currentDiscardTotal >= discardTarget
+									? 'cursor-not-allowed opacity-50'
+									: 'cursor-pointer'}"
 								on:click|stopPropagation={() => toggleDiscard(res.id, 1)}
-								on:keydown|stopPropagation={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggleDiscard(res.id, 1))}
+								on:keydown|stopPropagation={(e) =>
+									(e.key === 'Enter' || e.key === ' ') &&
+									(e.preventDefault(), toggleDiscard(res.id, 1))}
 							>
 								+
 							</span>
@@ -501,18 +517,22 @@
 				</button>
 			{:else if phase === 'Main'}
 				<div class="flex min-w-[7rem] flex-col gap-1">
-					<button
-						on:click={() => onTradeClick('player')}
-						class="flex-1 rounded-lg bg-wood px-6 py-1.5 text-xs font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95"
-					>
-						{#if tradeComposerOpen}
-							Close Trade
-						{:else if myOpenTradeCount > 0}
-							Trade ({myOpenTradeCount})
-						{:else}
-							Trade
-						{/if}
-					</button>
+					{#if turnRole !== 'SpecialBuild'}
+						<button
+							on:click={() => onTradeClick(turnRole === 'PairedSecondary' ? 'bank' : 'player')}
+							class="flex-1 rounded-lg bg-wood px-6 py-1.5 text-xs font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95"
+						>
+							{#if tradeComposerOpen}
+								Close Trade
+							{:else if turnRole === 'PairedSecondary'}
+								Bank / Harbor Trade
+							{:else if myOpenTradeCount > 0}
+								Trade ({myOpenTradeCount})
+							{:else}
+								Trade
+							{/if}
+						</button>
+					{/if}
 					<button
 						on:click={() => sendGameAction('buy_development_card')}
 						disabled={!canBuyDevelopmentCard}
@@ -532,7 +552,11 @@
 					on:click={() => sendGameAction('end_turn')}
 					class="ml-10 rounded-xl border-2 border-wood/20 bg-white px-6 py-2 font-black text-wood-dark shadow-sm transition-transform hover:scale-105 active:scale-95"
 				>
-					End Turn
+					{turnRole === 'SpecialBuild'
+						? 'Pass / Finish Build'
+						: turnRole === 'PairedSecondary'
+							? 'Finish Player 2 Turn'
+							: 'End Turn'}
 				</button>
 			{:else if phase.startsWith('Setup')}
 				<div

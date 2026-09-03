@@ -284,12 +284,53 @@ class GameState
     @robber_return_phase = nil
     @pending_player_trades.clear
 
-    idx = @player_order.index(@turn.current_player_id) || raise "current player missing"
-    next_idx = (idx + 1) % @player_order.size
+    if paired_turns?
+      advance_paired_turn!
+    elsif special_build_turns?
+      advance_special_build_turn!
+    else
+      advance_regular_turn!
+    end
+  end
 
+  private def advance_regular_turn! : Nil
+    idx = @player_order.index(@turn.primary_player_id) || raise "primary player missing"
+    next_idx = (idx + 1) % @player_order.size
     @turn.current_player_id = @player_order[next_idx]
+    @turn.primary_player_id = @turn.current_player_id
+    @turn.role = TurnRole::Regular
+    @turn.special_build_remaining_player_ids.clear
     @turn.number += 1 if next_idx == 0
     @turn.phase = TurnPhase::Roll
+  end
+
+  private def advance_paired_turn! : Nil
+    if @turn.role.regular?
+      primary_idx = @player_order.index(@turn.primary_player_id) || raise "primary player missing"
+      secondary_idx = (primary_idx + 3) % @player_order.size
+      @turn.current_player_id = @player_order[secondary_idx]
+      @turn.role = TurnRole::PairedSecondary
+      @turn.phase = TurnPhase::Main
+    else
+      advance_regular_turn!
+    end
+  end
+
+  private def advance_special_build_turn! : Nil
+    if @turn.role.regular?
+      primary_idx = @player_order.index(@turn.primary_player_id) || raise "primary player missing"
+      @turn.special_build_remaining_player_ids = (1...@player_order.size).map do |offset|
+        @player_order[(primary_idx + offset) % @player_order.size]
+      end
+    end
+
+    if next_player_id = @turn.special_build_remaining_player_ids.shift?
+      @turn.current_player_id = next_player_id
+      @turn.role = TurnRole::SpecialBuild
+      @turn.phase = TurnPhase::Main
+    else
+      advance_regular_turn!
+    end
   end
 
   private def advance_setup_forward! : Nil
@@ -440,21 +481,12 @@ class GameState
 
   private def resolve_winner! : Nil
     return if @winner_player_id
+    return if @turn.role.special_build?
 
-    if current_player!.victory_points + current_player!.revealed_victory_point_cards >= 10
+    if current_player!.victory_points + current_player!.revealed_victory_point_cards >= victory_point_target
       @winner_player_id = @turn.current_player_id
       @turn.phase = TurnPhase::GameOver
-      return
     end
-
-    winner = @player_order.find do |player_id|
-      player!(player_id).victory_points + player!(player_id).revealed_victory_point_cards >= 10
-    end
-
-    return unless winner
-
-    @winner_player_id = winner
-    @turn.phase = TurnPhase::GameOver
   end
 
   private def longest_road_for(player_id : PlayerId) : Int32
@@ -689,6 +721,7 @@ class GameState
   private def validate_bank_trade_completed!(event : BankTradeCompleted) : Nil
     raise "wrong player completed bank trade" unless event.player_id == @turn.current_player_id
     raise "can only trade during the main phase" unless @turn.phase.main?
+    raise "cannot trade during the special build phase" if @turn.role.special_build?
     raise "cannot trade desert with the bank" if event.offered_resource.desert? || event.requested_resource.desert?
     raise "bank trade must change resources" if event.offered_resource == event.requested_resource
 
@@ -706,6 +739,7 @@ class GameState
   private def validate_player_trade_offer_payload!(player_id : PlayerId, offered : ResourcePile, requested : ResourcePile) : Nil
     raise "wrong player completed trade" unless player_id == @turn.current_player_id
     raise "can only trade during the main phase" unless @turn.phase.main?
+    raise "player trades are not allowed during this turn segment" unless @turn.role.regular?
     raise "trade offer cannot contain negative resource counts" if has_negative_resources?(offered)
     raise "trade request cannot contain negative resource counts" if has_negative_resources?(requested)
     raise "trade offer cannot be empty" if offered.empty?
@@ -760,6 +794,7 @@ class GameState
   private def validate_dev_card_play!(player_id : PlayerId, card : DevCard) : Nil
     raise "wrong player played development card" unless player_id == @turn.current_player_id
     raise "can only play development cards during the roll or main phase" unless @turn.phase.roll? || @turn.phase.main?
+    raise "cannot play development cards during the special build phase" if @turn.role.special_build?
     raise "can only play one development card per turn" if @turn.dev_card_played_this_turn
 
     player = player!(player_id)

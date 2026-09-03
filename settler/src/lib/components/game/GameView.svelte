@@ -9,11 +9,11 @@
 	import GameOverScreen from './GameOverScreen.svelte';
 	import BuildCostsPanel from './BuildCostsPanel.svelte';
 	import {
-	createEmptyResourcePile,
-	getBankTradeRates,
-	type ResourceKey,
-	type ResourcePile
-} from './trade';
+		createEmptyResourcePile,
+		getBankTradeRates,
+		type ResourceKey,
+		type ResourcePile
+	} from './trade';
 	import { playSound, playTimerTick } from '$lib/utils/sound';
 
 	type ChatMessage = {
@@ -24,6 +24,16 @@
 	};
 
 	$: isGameOver = gameState?.turn?.phase === 'GameOver';
+	$: turnRole = gameState?.turn?.role || 'Regular';
+	$: turnRoleLabel =
+		turnRole === 'PairedSecondary'
+			? 'Player 2: build, play a development card, or trade with the bank'
+			: turnRole === 'SpecialBuild'
+				? 'Special Building Phase: build or buy a development card; trading and playing cards are disabled'
+				: gameState?.settings?.gameMode === 'fiveSixExtension' &&
+					  gameState?.settings?.fiveSixTurnRule === 'paired'
+					? 'Player 1: roll, trade, and build normally'
+					: null;
 	$: timerEnabled = !!gameState?.turn?.timer_enabled;
 	$: timerExpiresAtMs = gameState?.turn?.timer_expires_at
 		? new Date(gameState.turn.timer_expires_at).getTime()
@@ -131,6 +141,7 @@
 	}
 
 	function handleTradeComposerModeChange(mode: 'player' | 'bank') {
+		if (turnRole !== 'Regular' && mode === 'player') return;
 		tradeOffered = createEmptyResourcePile();
 		tradeRequested = createEmptyResourcePile();
 		onTradeComposerModeChange(mode);
@@ -297,6 +308,13 @@
 	<main class="relative flex flex-1 flex-col overflow-hidden">
 		<!-- Board Area Container -->
 		<div class="relative flex-1 overflow-hidden">
+			{#if turnRoleLabel && !isGameOver}
+				<div
+					class="absolute top-4 left-1/2 z-20 max-w-xl -translate-x-1/2 rounded-full border border-white/30 bg-wood-dark/80 px-5 py-2 text-center text-xs font-bold text-white shadow-lg backdrop-blur-md"
+				>
+					{turnRoleLabel}
+				</div>
+			{/if}
 			{#if timerEnabled && timerLabel}
 				<div
 					class="absolute top-4 left-4 z-20 rounded-2xl border border-white/20 bg-black/25 px-4 py-3 text-white shadow-lg backdrop-blur-md"
@@ -428,7 +446,7 @@
 				onCancelPendingBoardBuildAction={cancelPendingBoardBuildAction}
 				onConfirmSingleRoadBuildingPlacement={confirmSingleRoadBuildingPlacement}
 				onResourceClick={handleResourceClick}
-				tradeOffered={tradeOffered}
+				{tradeOffered}
 			/>
 		</div>
 	</main>

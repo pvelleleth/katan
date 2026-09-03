@@ -110,6 +110,17 @@ class Bank
     )
   end
 
+  def self.five_six_extension : self
+    new(
+      resources: ResourcePile.new(24, 24, 24, 24, 24),
+      knight: 20,
+      victory_point: 5,
+      road_building: 3,
+      year_of_plenty: 3,
+      monopoly: 3
+    )
+  end
+
   def dev_cards_remaining : Int32
     @knight + @victory_point + @road_building + @year_of_plenty + @monopoly
   end

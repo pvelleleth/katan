@@ -54,4 +54,21 @@ describe BoardTopology do
       topology.neighboring_tiles(neighbor_tile_id).includes?(center_tile).should be_true
     end
   end
+
+  it "builds the 5-6 player extension board graph" do
+    topology = BoardTopology.five_six_extension
+
+    topology.tiles.size.should eq(30)
+    topology.vertices.size.should eq(80)
+    topology.edges.size.should eq(109)
+    topology.harbor_slots.size.should eq(11)
+
+    topology.harbor_slots.each_value do |harbor_slot|
+      edge = topology.edges.values.find do |candidate|
+        candidate.vertex_ids == harbor_slot.vertex_ids || candidate.vertex_ids.reverse == harbor_slot.vertex_ids
+      end
+      edge.should_not be_nil
+      edge.not_nil!.tile_ids.size.should eq(1)
+    end
+  end
 end

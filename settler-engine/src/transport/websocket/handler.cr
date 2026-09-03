@@ -80,10 +80,10 @@ module Settler::Engine::Transport::WebSocket
         lobby = @lobby_manager.create_lobby(payload.player_id, payload.name)
         client.send_json(
           {
-            type: "create_lobby_success",
+            type:  "create_lobby_success",
             lobby: {
               shortCode: lobby.id,
-              isPublic: lobby.is_public,
+              isPublic:  lobby.is_public,
             },
           }.to_json
         )
@@ -134,7 +134,9 @@ module Settler::Engine::Transport::WebSocket
             if settings
               lobby = @lobby_manager.get_or_create_lobby(lid)
               if lobby.host_id == client.player_id
-                @lobby_manager.update_settings(lid, settings)
+                unless @lobby_manager.update_settings(lid, settings)
+                  send_error(client, "invalid_settings", "Those settings are not valid for the current lobby.")
+                end
               else
                 send_error(client, "forbidden", "Only the host can update lobby settings.")
               end
@@ -185,7 +187,9 @@ module Settler::Engine::Transport::WebSocket
       when "start_game"
         lobby = @lobby_manager.get_or_create_lobby(lobby_id)
         if lobby.host_id == client.player_id
-          @lobby_manager.start_game(lobby_id)
+          unless @lobby_manager.start_game(lobby_id, true)
+            send_error(client, "cannot_start", "Use the required player count and make sure everyone is connected and ready.")
+          end
         else
           send_error(client, "forbidden", "Only the host can start the game.")
         end

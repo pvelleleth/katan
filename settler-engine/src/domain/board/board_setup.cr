@@ -41,7 +41,7 @@ class GeneratedBoardSetup
 end
 
 class BoardSetupGenerator
-  RESOURCES = [
+  STANDARD_RESOURCES = [
     Resource::Wood, Resource::Wood, Resource::Wood, Resource::Wood,
     Resource::Brick, Resource::Brick, Resource::Brick,
     Resource::Sheep, Resource::Sheep, Resource::Sheep, Resource::Sheep,
@@ -50,17 +50,28 @@ class BoardSetupGenerator
     Resource::Desert,
   ]
 
-  TOKENS = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12]
+  STANDARD_TOKENS     = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12]
+  EXTENSION_RESOURCES = [
+    Resource::Wood, Resource::Wood, Resource::Wood, Resource::Wood, Resource::Wood, Resource::Wood,
+    Resource::Brick, Resource::Brick, Resource::Brick, Resource::Brick, Resource::Brick,
+    Resource::Sheep, Resource::Sheep, Resource::Sheep, Resource::Sheep, Resource::Sheep, Resource::Sheep,
+    Resource::Wheat, Resource::Wheat, Resource::Wheat, Resource::Wheat, Resource::Wheat, Resource::Wheat,
+    Resource::Ore, Resource::Ore, Resource::Ore, Resource::Ore, Resource::Ore,
+    Resource::Desert, Resource::Desert,
+  ]
+  EXTENSION_TOKENS = [2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12]
 
   def self.generate(topology : BoardTopology, rng : Random) : GeneratedBoardSetup
     tile_ids = topology.tiles.keys.to_a
-    shuffled_resources = RESOURCES.shuffle(random: rng)
+    resources = topology.tiles.size == 30 ? EXTENSION_RESOURCES : STANDARD_RESOURCES
+    tokens = topology.tiles.size == 30 ? EXTENSION_TOKENS : STANDARD_TOKENS
+    shuffled_resources = resources.shuffle(random: rng)
 
     desert_index = shuffled_resources.index!(Resource::Desert)
     non_desert_tile_ids = tile_ids.each_with_index.each_with_object([] of TileId) do |(tile_id, index), memo|
       memo << tile_id unless shuffled_resources[index].desert?
     end
-    non_desert_tokens = generate_non_adjacent_high_probability_tokens(topology, non_desert_tile_ids, rng)
+    non_desert_tokens = generate_non_adjacent_high_probability_tokens(topology, non_desert_tile_ids, tokens, rng)
 
     tile_setups = [] of TileSetup
     token_idx = 0
@@ -85,10 +96,11 @@ class BoardSetupGenerator
   private def self.generate_non_adjacent_high_probability_tokens(
     topology : BoardTopology,
     tile_ids : Array(TileId),
+    token_supply : Array(Int32),
     rng : Random,
   ) : Array(Int32)
     loop do
-      tokens = TOKENS.shuffle(random: rng)
+      tokens = token_supply.shuffle(random: rng)
       token_by_tile_id = tile_ids.zip(tokens).to_h
 
       return tokens if high_probability_tokens_separated?(topology, token_by_tile_id)
@@ -103,9 +115,9 @@ class BoardSetupGenerator
       next unless token == 6 || token == 8
 
       return false if topology.neighboring_tiles(tile_id).any? do |neighbor_tile_id|
-        neighbor_token = token_by_tile_id[neighbor_tile_id]?
-        neighbor_token == 6 || neighbor_token == 8
-      end
+                        neighbor_token = token_by_tile_id[neighbor_tile_id]?
+                        neighbor_token == 6 || neighbor_token == 8
+                      end
     end
 
     true
@@ -122,7 +134,12 @@ class BoardSetupGenerator
       HarborKind::SheepTwoToOne,
       HarborKind::WheatTwoToOne,
       HarborKind::OreTwoToOne,
-    ].shuffle(random: rng)
+    ]
+    if topology.harbor_slots.size == 11
+      harbor_kinds << HarborKind::ThreeToOne
+      harbor_kinds << HarborKind::SheepTwoToOne
+    end
+    harbor_kinds.shuffle!(random: rng)
 
     harbor_slots = topology.harbor_slots.values.sort_by(&.id.value)
 

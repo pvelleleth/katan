@@ -14,13 +14,15 @@
 	let currentPlayerId = '';
 	let joinError = data.joinError ?? '';
 
-	type ColorNames = 'brick' | 'ocean' | 'wheat' | 'purple';
+	type ColorNames = 'brick' | 'ocean' | 'wheat' | 'purple' | 'forest' | 'wood';
 
 	type GameSettings = {
 		turnTimerEnabled: boolean;
 		turnTimeSeconds: number;
 		maxPlayers: number;
 		victoryPoints: number;
+		gameMode: 'base' | 'fiveSixExtension';
+		fiveSixTurnRule: 'paired' | 'specialBuild';
 		useSeafarers: boolean;
 		useTraders: boolean;
 		useExplorers: boolean;
@@ -31,6 +33,8 @@
 		turnTimeSeconds: 120,
 		maxPlayers: 4,
 		victoryPoints: 10,
+		gameMode: 'base',
+		fiveSixTurnRule: 'paired',
 		useSeafarers: false,
 		useTraders: false,
 		useExplorers: false
@@ -224,7 +228,14 @@
 				}
 
 				// Keep the color assignment stable by looking at the DB or doing it deterministically
-				const fallbackColors: ColorNames[] = ['brick', 'ocean', 'wheat', 'purple'];
+				const fallbackColors: ColorNames[] = [
+					'brick',
+					'ocean',
+					'wheat',
+					'purple',
+					'forest',
+					'wood'
+				];
 
 				players = updatedPlayers.map((p: any, index: number) => ({
 					id: p.id,
@@ -457,13 +468,22 @@
 		brick: 'bg-brick',
 		ocean: 'bg-ocean',
 		wheat: 'bg-wheat',
-		purple: 'bg-purple'
+		purple: 'bg-purple',
+		forest: 'bg-forest',
+		wood: 'bg-wood'
 	};
 
 	$: offlinePlayers = players.filter((player) => !player.isConnected);
 	$: readyConnectedPlayers = players.filter((player) => player.isConnected && player.isReady);
-	$: canStartGame = readyConnectedPlayers.length >= 3;
-	$: canEditVisibility = currentPlayerId === data.hostId && data.status === 'waiting' && !gameStarted;
+	$: requiredPlayerRange = settings.gameMode === 'fiveSixExtension' ? [5, 6] : [3, 4];
+	$: playerSlotCount = settings.gameMode === 'fiveSixExtension' ? 6 : settings.maxPlayers;
+	$: canStartGame =
+		players.length >= requiredPlayerRange[0] &&
+		players.length <= requiredPlayerRange[1] &&
+		players.length <= playerSlotCount &&
+		players.every((player) => player.isConnected && player.isReady);
+	$: canEditVisibility =
+		currentPlayerId === data.hostId && data.status === 'waiting' && !gameStarted;
 	$: lobbyStatus =
 		offlinePlayers.length > 0
 			? `${offlinePlayers.length} player${offlinePlayers.length === 1 ? '' : 's'} disconnected`
@@ -473,9 +493,16 @@
 		(!gameStarted ||
 			!gameState ||
 			gameState.turn.current_player_id !== currentPlayerId ||
-			gameState.turn.phase !== 'Main')
+			gameState.turn.phase !== 'Main' ||
+			gameState.turn.role === 'SpecialBuild')
 	) {
 		tradeComposerOpen = false;
+	}
+
+	function selectGameMode(mode: GameSettings['gameMode']) {
+		settings.gameMode = mode;
+		settings.maxPlayers = mode === 'fiveSixExtension' ? 6 : 4;
+		settings = { ...settings };
 	}
 </script>
 
@@ -572,7 +599,7 @@
 			{chatMessages}
 			{tradeComposerOpen}
 			{tradeComposerMode}
-			sfxMuted={sfxMuted}
+			{sfxMuted}
 			onToggleSfx={toggleSfxMuted}
 			onOpenTradeComposer={openTradeComposer}
 			onCloseTradeComposer={closeTradeComposer}
@@ -657,7 +684,7 @@
 						<div class="rounded-3xl border-2 border-wood/10 p-8 shadow-xl glass-panel">
 							<div class="mb-6 flex items-center justify-between">
 								<h2 class="text-2xl font-black text-wood-dark">
-									Players ({players.length}/{settings.maxPlayers})
+									Players ({players.length}/{playerSlotCount})
 								</h2>
 								<span
 									class="rounded-full bg-wood/10 px-3 py-1 text-center text-sm font-bold text-wood-light"
@@ -742,7 +769,7 @@
 								{/each}
 
 								<!-- Empty Slots -->
-								{#each Array(Math.max(0, settings.maxPlayers - players.length)) as _}
+								{#each Array(Math.max(0, playerSlotCount - players.length)) as _}
 									<div
 										class="flex h-[84px] items-center gap-4 rounded-2xl border-2 border-dashed border-wood/20 bg-wood/5 p-4"
 									>
@@ -853,21 +880,70 @@
 											/>
 										</div>
 										<div>
-											<label
-												for="maxPlayers"
-												class="mb-1 block text-xs font-bold tracking-wider text-wood-light uppercase"
-												>Max players</label
-											>
-											<input
-												id="maxPlayers"
-												type="number"
-												min="2"
-												max="6"
-												bind:value={settings.maxPlayers}
-												disabled={!isHost}
-												class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark focus:border-ocean/50 focus:ring-2 focus:ring-ocean/20 focus:outline-none disabled:cursor-not-allowed disabled:bg-wood/5 disabled:opacity-70"
-											/>
+											<p class="mb-2 text-xs font-bold tracking-wider text-wood-light uppercase">
+												Game set
+											</p>
+											<div class="grid grid-cols-2 gap-2">
+												<button
+													type="button"
+													disabled={!isHost || players.length > 4}
+													on:click={() => selectGameMode('base')}
+													class="rounded-xl border px-3 py-2 text-xs font-bold transition {settings.gameMode ===
+													'base'
+														? 'border-ocean bg-ocean text-white'
+														: 'border-wood/20 bg-white/70 text-wood-dark'} disabled:cursor-not-allowed disabled:opacity-40"
+												>
+													Normal 3–4
+												</button>
+												<button
+													type="button"
+													disabled={!isHost}
+													on:click={() => selectGameMode('fiveSixExtension')}
+													class="rounded-xl border px-3 py-2 text-xs font-bold transition {settings.gameMode ===
+													'fiveSixExtension'
+														? 'border-forest bg-forest text-white'
+														: 'border-wood/20 bg-white/70 text-wood-dark'} disabled:cursor-not-allowed disabled:opacity-40"
+												>
+													5–6 Extension
+												</button>
+											</div>
 										</div>
+										{#if settings.gameMode === 'base'}
+											<div>
+												<label
+													for="maxPlayers"
+													class="mb-1 block text-xs font-bold tracking-wider text-wood-light uppercase"
+													>Seats</label
+												>
+												<select
+													id="maxPlayers"
+													bind:value={settings.maxPlayers}
+													disabled={!isHost}
+													class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark disabled:cursor-not-allowed disabled:opacity-70"
+												>
+													<option value={3} disabled={players.length > 3}>3 players</option>
+													<option value={4}>4 players</option>
+												</select>
+											</div>
+										{/if}
+										{#if settings.gameMode === 'fiveSixExtension'}
+											<div>
+												<label
+													for="fiveSixTurnRule"
+													class="mb-1 block text-xs font-bold tracking-wider text-wood-light uppercase"
+													>Extension turn rules</label
+												>
+												<select
+													id="fiveSixTurnRule"
+													bind:value={settings.fiveSixTurnRule}
+													disabled={!isHost}
+													class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark disabled:cursor-not-allowed disabled:opacity-70"
+												>
+													<option value="paired">Paired players (official)</option>
+													<option value="specialBuild">Special Building Phase (legacy)</option>
+												</select>
+											</div>
+										{/if}
 										<div>
 											<label
 												for="victoryPoints"

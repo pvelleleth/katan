@@ -106,6 +106,41 @@ class RecordingGameEventStore < Settler::Engine::Infrastructure::Persistence::Ga
 end
 
 describe Settler::Engine::Application::LobbyManager do
+  it "starts a validated 5-player extension lobby with the expanded board" do
+    manager = Settler::Engine::Application::LobbyManager.new(RecordingGameEventStore.new)
+    manager.handle_join("EXT501", "player-1", "Player 1", Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new)).tap { |client| client.lobby_id = "EXT501" })
+    manager.update_settings(
+      "EXT501",
+      JSON.parse(
+        {
+          gameMode:         "fiveSixExtension",
+          fiveSixTurnRule:  "paired",
+          maxPlayers:       6,
+          turnTimerEnabled: false,
+          turnTimeSeconds:  120,
+          victoryPoints:    10,
+          useSeafarers:     false,
+          useTraders:       false,
+          useExplorers:     false,
+        }.to_json
+      ).as_h
+    ).should be_true
+
+    (2..5).each do |index|
+      client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+      client.lobby_id = "EXT501"
+      manager.handle_join("EXT501", "player-#{index}", "Player #{index}", client)
+    end
+    manager.get_or_create_lobby("EXT501").players.each do |player|
+      manager.set_player_ready("EXT501", player.id, true).should be_true
+    end
+
+    manager.start_game("EXT501", true).should be_true
+    game_state = manager.games["EXT501"]
+    game_state.topology.tiles.size.should eq(30)
+    game_state.players.size.should eq(5)
+    game_state.paired_turns?.should be_true
+  end
   it "persists and broadcasts lobby chat messages" do
     store = RecordingGameEventStore.new
     manager = Settler::Engine::Application::LobbyManager.new(store)

@@ -43,6 +43,13 @@
       "when": 1774371258297,
       "tag": "0005_quiet_sentinel",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787126959080,
+      "tag": "0006_goofy_namora",
+      "breakpoints": true
     }
   ]
 }

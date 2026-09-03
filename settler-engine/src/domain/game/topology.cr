@@ -118,7 +118,14 @@ class BoardTopology
   getter harbor_slots : Hash(HarborSlotId, HarborSlotTopology)
 
   def self.standard : self
-    tile_points = standard_tile_points
+    build(standard_tile_points, HARBOR_SLOT_EDGE_POINTS)
+  end
+
+  def self.five_six_extension : self
+    build(five_six_tile_points)
+  end
+
+  private def self.build(tile_points : Array(GraphPoint), harbor_edge_points : Array(GraphEdgeKey)? = nil) : self
     tile_ids_by_point = Hash(GraphPoint, TileId).new
     tile_vertex_points = Hash(TileId, Array(GraphPoint)).new
     tile_edge_keys = Hash(TileId, Array(GraphEdgeKey)).new
@@ -200,7 +207,11 @@ class BoardTopology
       )
     end
 
-    harbor_slots = build_harbor_slots(edge_tile_ids, vertex_ids_by_point)
+    harbor_slots = if edge_points = harbor_edge_points
+                     build_harbor_slots(edge_tile_ids, vertex_ids_by_point, edge_points)
+                   else
+                     build_evenly_spaced_harbor_slots(edge_tile_ids, vertex_ids_by_point, 11)
+                   end
 
     new(
       tiles: tiles,
@@ -253,6 +264,18 @@ class BoardTopology
     points
   end
 
+  private def self.five_six_tile_points : Array(GraphPoint)
+    points = [] of GraphPoint
+
+    (-3..3).each do |r|
+      q_min = Math.max(-3, -r - 3)
+      q_max = Math.min(2, -r + 2)
+      (q_min..q_max).each { |q| points << axial_to_point(q, r) }
+    end
+
+    points
+  end
+
   private def self.axial_to_point(q : Int32, r : Int32) : GraphPoint
     {2 * q + r, 3 * r}
   end
@@ -271,8 +294,9 @@ class BoardTopology
   private def self.build_harbor_slots(
     edge_tile_ids : Hash(GraphEdgeKey, Array(TileId)),
     vertex_ids_by_point : Hash(GraphPoint, VertexId),
+    harbor_edge_points : Array(GraphEdgeKey),
   ) : Hash(HarborSlotId, HarborSlotTopology)
-    HARBOR_SLOT_EDGE_POINTS.each_with_index.each_with_object({} of HarborSlotId => HarborSlotTopology) do |(edge_points, harbor_index), hash|
+    harbor_edge_points.each_with_index.each_with_object({} of HarborSlotId => HarborSlotTopology) do |(edge_points, harbor_index), hash|
       edge_key = canonical_edge(edge_points[0], edge_points[1])
       tile_ids = edge_tile_ids[edge_key]? || raise "unknown harbor edge #{edge_key}"
       raise "harbor edge #{edge_key} is not coastal" unless tile_ids.size == 1
@@ -281,5 +305,22 @@ class BoardTopology
       harbor_id = HarborSlotId.new("h#{(harbor_index + 1).to_s.rjust(2, '0')}")
       hash[harbor_id] = HarborSlotTopology.new(harbor_id, {vertex_ids_by_point[a], vertex_ids_by_point[b]})
     end
+  end
+
+  private def self.build_evenly_spaced_harbor_slots(
+    edge_tile_ids : Hash(GraphEdgeKey, Array(TileId)),
+    vertex_ids_by_point : Hash(GraphPoint, VertexId),
+    count : Int32,
+  ) : Hash(HarborSlotId, HarborSlotTopology)
+    coastal_edges = edge_tile_ids.select { |_, tile_ids| tile_ids.size == 1 }.keys.sort_by do |edge_key|
+      a, b = edge_key
+      Math.atan2((a[1] + b[1]).to_f64, (a[0] + b[0]).to_f64)
+    end
+
+    selected_edges = (0...count).map do |index|
+      coastal_edges[(index * coastal_edges.size) // count]
+    end
+
+    build_harbor_slots(edge_tile_ids, vertex_ids_by_point, selected_edges)
   end
 end

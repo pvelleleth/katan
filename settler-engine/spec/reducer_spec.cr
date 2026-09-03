@@ -13,6 +13,24 @@ private def build_game_state(player_count : Int32 = 2) : GameState
   )
 end
 
+private def build_extension_game_state(turn_rule : String, player_count : Int32 = 5) : GameState
+  players = (1..player_count).map do |index|
+    player_id = PlayerId.new("player-#{index}")
+    {player_id, PlayerState.new(player_id, "Player #{index}")}
+  end.to_h
+
+  GameState.new(
+    topology: BoardTopology.five_six_extension,
+    players: players,
+    settings: {
+      "gameMode"        => JSON::Any.new("fiveSixExtension"),
+      "fiveSixTurnRule" => JSON::Any.new(turn_rule),
+      "victoryPoints"   => JSON::Any.new(10),
+    },
+    rng: Random.new(7)
+  )
+end
+
 private def resource_tally_for_vertex(game_state : GameState, vertex_id : VertexId) : Hash(Resource, Int32)
   tally = Hash(Resource, Int32).new(0)
 
@@ -62,12 +80,79 @@ private def robber_target_with_victim(game_state : GameState) : NamedTuple(tile_
 end
 
 describe GameState do
+  it "uses expanded supplies for a 5-6 player game" do
+    game_state = build_extension_game_state("paired")
+
+    game_state.bank.resources.wood.should eq(24)
+    game_state.bank.resources.brick.should eq(24)
+    game_state.bank.knight.should eq(20)
+    game_state.bank.victory_point.should eq(5)
+    game_state.bank.road_building.should eq(3)
+    game_state.bank.year_of_plenty.should eq(3)
+    game_state.bank.monopoly.should eq(3)
+  end
+
+  it "advances through primary and secondary paired-player segments" do
+    game_state = build_extension_game_state("paired")
+    primary_id = game_state.turn.primary_player_id
+    primary_idx = game_state.player_order.index!(primary_id)
+    expected_secondary_id = game_state.player_order[(primary_idx + 3) % game_state.player_order.size]
+    expected_next_primary_id = game_state.player_order[(primary_idx + 1) % game_state.player_order.size]
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(TurnEnded.new(1, primary_id))
+    game_state.turn.role.should eq(TurnRole::PairedSecondary)
+    game_state.turn.current_player_id.should eq(expected_secondary_id)
+    game_state.turn.phase.should eq(TurnPhase::Main)
+
+    game_state.apply!(TurnEnded.new(2, expected_secondary_id))
+    game_state.turn.role.should eq(TurnRole::Regular)
+    game_state.turn.current_player_id.should eq(expected_next_primary_id)
+    game_state.turn.primary_player_id.should eq(expected_next_primary_id)
+    game_state.turn.phase.should eq(TurnPhase::Roll)
+  end
+
+  it "runs every other player through the legacy special building phase" do
+    game_state = build_extension_game_state("specialBuild")
+    primary_id = game_state.turn.primary_player_id
+    primary_idx = game_state.player_order.index!(primary_id)
+    expected_builders = (1...game_state.player_order.size).map do |offset|
+      game_state.player_order[(primary_idx + offset) % game_state.player_order.size]
+    end
+    game_state.turn.phase = TurnPhase::Main
+
+    game_state.apply!(TurnEnded.new(1, primary_id))
+    expected_builders.each_with_index do |builder_id, index|
+      game_state.turn.role.should eq(TurnRole::SpecialBuild)
+      game_state.turn.current_player_id.should eq(builder_id)
+      game_state.apply!(TurnEnded.new(index + 2, builder_id))
+    end
+
+    game_state.turn.role.should eq(TurnRole::Regular)
+    game_state.turn.current_player_id.should eq(expected_builders.first)
+    game_state.turn.phase.should eq(TurnPhase::Roll)
+  end
+
+  it "forbids domestic trades during paired secondary and special build segments" do
+    ["paired", "specialBuild"].each do |turn_rule|
+      game_state = build_extension_game_state(turn_rule)
+      primary_id = game_state.turn.primary_player_id
+      game_state.turn.phase = TurnPhase::Main
+      game_state.apply!(TurnEnded.new(1, primary_id))
+      actor = game_state.current_player!
+      actor.hand.wood = 1
+
+      expect_raises(Exception, "player trades are not allowed during this turn segment") do
+        game_state.apply!(PlayerTradeProposed.new(2, 1, actor.id, ResourcePile.new(1, 0, 0, 0, 0), ResourcePile.new(0, 1, 0, 0, 0)))
+      end
+    end
+  end
   it "computes turn timer durations from settings" do
     game_state = GameState.new(
       topology: BoardTopology.standard,
       players: {PlayerId.new("player-1") => PlayerState.new(PlayerId.new("player-1"), "Player 1")},
       settings: {
-        "turnTimeSeconds" => JSON::Any.new(45),
+        "turnTimeSeconds"  => JSON::Any.new(45),
         "turnTimerEnabled" => JSON::Any.new(true),
       }
     )

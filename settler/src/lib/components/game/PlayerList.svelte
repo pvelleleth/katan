@@ -20,6 +20,7 @@
 	$: currentPlayerId = gameState.turn.current_player_id;
 	$: playerOrder = gameState.player_order;
 	$: phase = gameState.turn.phase;
+	$: turnRole = gameState.turn.role || 'Regular';
 	$: isMyTurn = currentPlayerId === playerId;
 	$: isStealPhase = phase === 'StealResource';
 	$: eligibleVictims = gameState.turn.robber_eligible_victim_ids || [];
@@ -57,7 +58,7 @@
 	let gameLogCollapsed = false;
 	let gameLogScrollEl: HTMLDivElement | undefined;
 
-	$: if (gameLog, !gameLogCollapsed) {
+	$: if ((gameLog, !gameLogCollapsed)) {
 		tick().then(() => {
 			gameLogScrollEl?.scrollTo({ top: gameLogScrollEl.scrollHeight });
 		});
@@ -67,6 +68,11 @@
 <div class="flex h-full flex-col gap-4">
 	<div class="shrink-0">
 		<h2 class="mb-2 text-xl font-black text-wood-dark">Players</h2>
+		{#if turnRole !== 'Regular'}
+			<p class="mb-3 text-xs font-bold text-ocean">
+				{turnRole === 'PairedSecondary' ? 'Player 2 turn' : 'Special Building Phase'}
+			</p>
+		{/if}
 
 		<div class="flex flex-col gap-2">
 			{#each gamePlayers as player}
@@ -75,16 +81,15 @@
 				{@const hasLongestRoad = player.has_longest_road}
 				{@const hasLargestArmy = player.has_largest_army}
 				{@const canStealFrom = canChooseVictim && !isMe && isEligibleVictim(player.id)}
-				{@const isDimmedDuringSteal =
-					canChooseVictim && !canStealFrom}
+				{@const isDimmedDuringSteal = canChooseVictim && !canStealFrom}
 				<div
 					class="relative flex flex-col gap-2 rounded-2xl border-2 p-2 transition-all {canStealFrom
-						? 'z-10 border-brick bg-white shadow-lg shadow-brick/25 ring-2 ring-brick/40'
+						? 'z-10 border-brick bg-white shadow-lg ring-2 shadow-brick/25 ring-brick/40'
 						: isCurrentTurn
 							? 'border-ocean bg-white shadow-lg'
-							: 'border-wood/10 bg-white/50'} {player.isConnected ? '' : 'opacity-65'} {isDimmedDuringSteal
-						? 'opacity-45 grayscale-[0.35]'
-						: ''}"
+							: 'border-wood/10 bg-white/50'} {player.isConnected
+						? ''
+						: 'opacity-65'} {isDimmedDuringSteal ? 'opacity-45 grayscale-[0.35]' : ''}"
 				>
 					{#if canStealFrom}
 						<div
@@ -281,17 +286,21 @@
 
 	<div class="flex min-h-0 flex-1 flex-col gap-4">
 		<div
-			class="flex flex-col rounded-2xl border-2 border-wood/10 bg-white/50 pt-2 px-3 pb-3 {gameLogCollapsed
+			class="flex flex-col rounded-2xl border-2 border-wood/10 bg-white/50 px-3 pt-2 pb-3 {gameLogCollapsed
 				? 'shrink-0 grow-0'
 				: 'min-h-0 flex-1'}"
 		>
 			<button
 				on:click={() => (gameLogCollapsed = !gameLogCollapsed)}
-				class="flex w-full items-center justify-between gap-2 text-left {gameLogCollapsed ? '' : 'mb-1.5'}"
+				class="flex w-full items-center justify-between gap-2 text-left {gameLogCollapsed
+					? ''
+					: 'mb-1.5'}"
 			>
 				<h3 class="text-sm font-bold tracking-wider text-wood-light uppercase">Game Log</h3>
 				<svg
-					class="h-4 w-4 shrink-0 text-wood-light transition-transform {gameLogCollapsed ? '' : 'rotate-90'}"
+					class="h-4 w-4 shrink-0 text-wood-light transition-transform {gameLogCollapsed
+						? ''
+						: 'rotate-90'}"
 					fill="none"
 					stroke="currentColor"
 					viewBox="0 0 24 24"
