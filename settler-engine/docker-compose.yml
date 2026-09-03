@@ -1,0 +1,14 @@
+name: settler-engine
+
+services:
+  settler-engine:
+    image: ghcr.io/pvelleleth/settler-engine:${SETTLER_ENGINE_TAG:-latest}
+    container_name: settler-engine
+    restart: unless-stopped
+    env_file:
+      - ${SETTLER_ENGINE_ENV_FILE:-/etc/settler-engine.env}
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:8080:8080"

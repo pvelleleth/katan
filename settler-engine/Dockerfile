@@ -17,7 +17,14 @@ RUN shards build --release --no-debug
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends libpq5 ca-certificates \
+	&& apt-get install -y --no-install-recommends \
+		ca-certificates \
+		curl \
+		libgc1 \
+		libpcre2-8-0 \
+		libpq5 \
+		libssl3 \
+		zlib1g \
 	&& rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -29,7 +36,12 @@ RUN useradd --system --no-create-home --shell /usr/sbin/nologin app \
 
 USER app
 
+ENV HOST=0.0.0.0
+ENV PORT=8080
 EXPOSE 8080
 
-# Optional: DATABASE_URL, WS_BOOTSTRAP_SECRET — pass at runtime (do not bake .env into the image)
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
+	CMD curl -fsS "http://127.0.0.1:${PORT}/health" || exit 1
+
+# DATABASE_URL and WS_BOOTSTRAP_SECRET are passed at runtime. Do not bake .env into the image.
 CMD ["/usr/local/bin/settler-engine"]

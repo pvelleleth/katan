@@ -1,0 +1,92 @@
+name: settler-engine
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "settler-engine/**"
+      - ".github/workflows/settler-engine.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: settler-engine-production
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/pvelleleth/settler-engine
+  DEPLOY_HOST: sock.settler.live
+  DEPLOY_USER: root
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: settler-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: "1.18.2"
+      - name: Install libpq
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev
+      - run: shards install
+      - run: crystal spec
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./settler-engine
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy compose files to the VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: settler-engine/docker-compose.yml,settler-engine/deploy/ci-deploy.sh
+          target: /tmp/settler-engine-deploy
+      - name: Run the new image
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          SETTLER_ENGINE_TAG: ${{ github.sha }}
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: GHCR_TOKEN,GHCR_USER,SETTLER_ENGINE_TAG
+          script: |
+            set -euo pipefail
+            install -d -m 755 /opt/settler-engine
+            install -m 644 /tmp/settler-engine-deploy/settler-engine/docker-compose.yml /opt/settler-engine/docker-compose.yml
+            install -m 755 /tmp/settler-engine-deploy/settler-engine/deploy/ci-deploy.sh /opt/settler-engine/ci-deploy.sh
+            /opt/settler-engine/ci-deploy.sh
+            curl --fail --silent --show-error --max-time 5 https://sock.settler.live/health >/dev/null
+            printf 'Deployed https://sock.settler.live/health\n'

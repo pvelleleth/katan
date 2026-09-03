@@ -34,6 +34,23 @@ To run the specs (tests):
 crystal spec
 ```
 
+## Production
+
+Production runs the engine as a Docker container on the VPS, published at
+`127.0.0.1:8080`. Caddy on the host terminates TLS for `sock.settler.live`
+and reverse-proxies to that port. Secrets stay on the host in
+`/etc/settler-engine.env` and are not baked into the image.
+
+A push to `main` that touches `settler-engine/` (or a manual workflow run)
+builds `ghcr.io/pvelleleth/settler-engine`, pushes it to GHCR, then SSHs to
+the VPS to pull and restart the container. Add one repository secret:
+
+- `DEPLOY_SSH_KEY`: private key whose public half is in `root`'s
+  `authorized_keys` on the VPS
+
+Do not use `/root/deploy-backend.sh` for this service anymore.
+
+
 ## 📁 Project Structure
 
 - `src/domain/`: Core game logic and entities.
