@@ -58,8 +58,7 @@ export const load: PageServerLoad = async (event) => {
 
 		// 5. Reject only when the lobby is already full and the viewer is not yet in it.
 		if (!existingParticipant) {
-			const playerSlotCount =
-				activeGame.settings.gameMode === 'fiveSixExtension' ? 6 : activeGame.settings.maxPlayers;
+			const playerSlotCount = activeGame.settings.gameMode === 'fiveSixExtension' ? 6 : 4;
 			const isLobbyFull = activeGame.participants.length >= playerSlotCount;
 
 			if (isLobbyFull) {

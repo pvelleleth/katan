@@ -1198,8 +1198,7 @@ module Settler::Engine::Application
     end
 
     private def max_players_for(lobby : Domain::Lobby) : Int32
-      return 6 if extension_mode?(lobby.settings)
-      lobby.settings["maxPlayers"]?.try(&.as_i.to_i32) || 4
+      extension_mode?(lobby.settings) ? 6 : 4
     end
 
     private def default_settings_json : Hash(String, JSON::Any)
@@ -1226,7 +1225,7 @@ module Settler::Engine::Application
 
     private def normalized_settings(settings : Hash(String, JSON::Any)) : Hash(String, JSON::Any)
       normalized = default_settings_json.merge(settings)
-      normalized["maxPlayers"] = JSON::Any.new(6_i64) if extension_mode?(normalized)
+      normalized["maxPlayers"] = JSON::Any.new(extension_mode?(normalized) ? 6_i64 : 4_i64)
       normalized
     end
 
@@ -1240,8 +1239,8 @@ module Settler::Engine::Application
       turn_rule = settings["fiveSixTurnRule"].as_s
       raise "Unknown 5-6 player turn rule" unless turn_rule == "paired" || turn_rule == "specialBuild"
       max_players = settings["maxPlayers"].as_i.to_i32
-      allowed = extension_mode?(settings) ? (5..6) : (3..4)
-      raise "Invalid seat count for selected game mode" unless allowed.includes?(max_players)
+      expected_seats = extension_mode?(settings) ? 6 : 4
+      raise "Invalid seat count for selected game mode" unless max_players == expected_seats
       raise "The selected game mode has fewer seats than the current lobby" if lobby.players.size > max_players
     end
 

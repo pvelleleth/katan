@@ -106,6 +106,42 @@ class RecordingGameEventStore < Settler::Engine::Infrastructure::Persistence::Ga
 end
 
 describe Settler::Engine::Application::LobbyManager do
+  it "starts a validated 3-player base lobby without choosing a 3-seat cap" do
+    manager = Settler::Engine::Application::LobbyManager.new(RecordingGameEventStore.new)
+    manager.handle_join("BASE03", "player-1", "Player 1", Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new)).tap { |client| client.lobby_id = "BASE03" })
+    manager.update_settings(
+      "BASE03",
+      JSON.parse(
+        {
+          gameMode:         "base",
+          fiveSixTurnRule:  "paired",
+          maxPlayers:       3,
+          turnTimerEnabled: false,
+          turnTimeSeconds:  120,
+          victoryPoints:    10,
+          useSeafarers:     false,
+          useTraders:       false,
+          useExplorers:     false,
+        }.to_json
+      ).as_h
+    ).should be_true
+
+    manager.get_or_create_lobby("BASE03").settings["maxPlayers"].as_i.should eq(4)
+
+    (2..3).each do |index|
+      client = Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new))
+      client.lobby_id = "BASE03"
+      manager.handle_join("BASE03", "player-#{index}", "Player #{index}", client)
+    end
+    manager.get_or_create_lobby("BASE03").players.each do |player|
+      manager.set_player_ready("BASE03", player.id, true).should be_true
+    end
+
+    manager.start_game("BASE03", true).should be_true
+    game_state = manager.games["BASE03"]
+    game_state.players.size.should eq(3)
+  end
+
   it "starts a validated 5-player extension lobby with the expanded board" do
     manager = Settler::Engine::Application::LobbyManager.new(RecordingGameEventStore.new)
     manager.handle_join("EXT501", "player-1", "Player 1", Settler::Engine::Transport::WebSocket::Client.new(HTTP::WebSocket.new(IO::Memory.new)).tap { |client| client.lobby_id = "EXT501" })

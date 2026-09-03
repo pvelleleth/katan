@@ -276,12 +276,11 @@ describe Settler::Engine::Application::LobbyManager do
     summaries.first.participant_count.should eq(1)
   end
 
-  it "prevents joins that would exceed the configured max players" do
+  it "always provides four seats for a 3-4 player lobby" do
     store = SnapshotStore.new
     manager = Settler::Engine::Application::LobbyManager.new(store)
     lobby = manager.create_lobby("player-1", "Alice", true)
-    client = test_client(lobby.id)
-    manager.handle_join(lobby.id, "player-1", "Alice", client)
+    manager.handle_join(lobby.id, "player-1", "Alice", test_client(lobby.id))
 
     manager.update_settings(
       lobby.id,
@@ -296,13 +295,14 @@ describe Settler::Engine::Application::LobbyManager do
           useExplorers:     false,
         }.to_json
       ).as_h
-    )
+    ).should be_true
 
-    manager.handle_join(lobby.id, "player-2", "Bob", test_client(lobby.id))
-    manager.handle_join(lobby.id, "player-3", "Cara", test_client(lobby.id))
-    manager.handle_join(lobby.id, "player-4", "Drew", test_client(lobby.id))
+    (2..5).each do |index|
+      manager.handle_join(lobby.id, "player-#{index}", "Player #{index}", test_client(lobby.id))
+    end
 
-    manager.get_or_create_lobby(lobby.id).players.map(&.id).should eq(["player-1", "player-2", "player-3"])
+    lobby.settings["maxPlayers"].as_i.should eq(4)
+    lobby.players.map(&.id).should eq(["player-1", "player-2", "player-3", "player-4"])
   end
 
   it "always provides six seats for a 5-6 player extension lobby" do

@@ -476,7 +476,7 @@
 	$: offlinePlayers = players.filter((player) => !player.isConnected);
 	$: readyConnectedPlayers = players.filter((player) => player.isConnected && player.isReady);
 	$: requiredPlayerRange = settings.gameMode === 'fiveSixExtension' ? [5, 6] : [3, 4];
-	$: playerSlotCount = settings.gameMode === 'fiveSixExtension' ? 6 : settings.maxPlayers;
+	$: playerSlotCount = settings.gameMode === 'fiveSixExtension' ? 6 : 4;
 	$: canStartGame =
 		players.length >= requiredPlayerRange[0] &&
 		players.length <= requiredPlayerRange[1] &&
@@ -908,24 +908,6 @@
 												</button>
 											</div>
 										</div>
-										{#if settings.gameMode === 'base'}
-											<div>
-												<label
-													for="maxPlayers"
-													class="mb-1 block text-xs font-bold tracking-wider text-wood-light uppercase"
-													>Seats</label
-												>
-												<select
-													id="maxPlayers"
-													bind:value={settings.maxPlayers}
-													disabled={!isHost}
-													class="w-full rounded-xl border border-wood/20 bg-white/80 px-3 py-2 text-sm font-semibold text-wood-dark disabled:cursor-not-allowed disabled:opacity-70"
-												>
-													<option value={3} disabled={players.length > 3}>3 players</option>
-													<option value={4}>4 players</option>
-												</select>
-											</div>
-										{/if}
 										{#if settings.gameMode === 'fiveSixExtension'}
 											<div>
 												<label
