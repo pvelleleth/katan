@@ -24,6 +24,11 @@ To start the engine in development mode:
 crystal run src/settler-engine.cr
 ```
 
+The server listens on `0.0.0.0:8080` by default. Set `HOST` and `PORT` to
+override the bind address, and set `WS_BOOTSTRAP_SECRET` (or
+`BETTER_AUTH_SECRET`) to the same secret used by the frontend. Set
+`DATABASE_URL` to enable game event persistence.
+
 To run the specs (tests):
 ```bash
 crystal spec

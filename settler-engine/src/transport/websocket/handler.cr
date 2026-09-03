@@ -17,7 +17,10 @@ module Settler::Engine::Transport::WebSocket
     def call(context)
       request = context.request
 
-      if request.path == "/ws/public-lobbies"
+      if request.path == "/health"
+        context.response.content_type = "application/json"
+        context.response.print({status: "ok"}.to_json)
+      elsif request.path == "/ws/public-lobbies"
         handle_public_socket(context)
       elsif request.path.starts_with?("/ws/lobby/")
         lobby_id = request.path.sub("/ws/lobby/", "")

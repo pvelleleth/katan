@@ -39,8 +39,8 @@ module Settler::Engine
       ws_handler,
     ])
 
-    port = 8080
-    host = "0.0.0.0"
+    port = ENV.fetch("PORT", "8080").to_i
+    host = ENV.fetch("HOST", "0.0.0.0")
 
     address = server.bind_tcp(host, port)
     puts "Server listening for WebSocket connections at ws://#{host}:#{port}/ws/lobby/<lobby_id> and ws://#{host}:#{port}/ws/public-lobbies"
